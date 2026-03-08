@@ -243,7 +243,8 @@ class VerificationImage(QWidget):
             zip(self.userClicks, self.targetPositions)
         ):
             distance = (
-                (userPos.x() - targetPos.x()) ** 2 + (userPos.y() - targetPos.y()) ** 2
+                (userPos.x() - targetPos.x()) ** 2
+                + (userPos.y() - targetPos.y()) ** 2
             ) ** 0.5
             if distance <= tolerance:
                 correct.append(i)

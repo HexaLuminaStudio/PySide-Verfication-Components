@@ -187,12 +187,8 @@ class VerificationImage(QWidget):
 
         tolerance = 20
         correct = []
-        for i, (userPos, targetPos) in enumerate(
-            zip(self.userClicks, self.targetPositions)
-        ):
-            distance = (
-                (userPos.x() - targetPos.x()) ** 2 + (userPos.y() - targetPos.y()) ** 2
-            ) ** 0.5
+        for i, (userPos, targetPos) in enumerate(zip(self.userClicks, self.targetPositions)):
+            distance = ((userPos.x() - targetPos.x()) ** 2 + (userPos.y() - targetPos.y()) ** 2) ** 0.5
             if distance <= tolerance:
                 correct.append(i)
 
@@ -203,10 +199,7 @@ class VerificationImage(QWidget):
         self.generateImage()
 
     def refreshImage(self):
-        if (
-            hasattr(self, "animation")
-            and self.animation.state() == QPropertyAnimation.State.Running
-        ):
+        if hasattr(self, "animation") and self.animation.state() == QPropertyAnimation.State.Running:
             self.animation.stop()
             self.animation.deleteLater()
             delattr(self, "animation")
