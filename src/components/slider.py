@@ -1,21 +1,68 @@
+"""Accessible slider control and lightweight interaction analysis.
+
+The analysis is intentionally a usability signal, not a security boundary. A
+desktop client can always be automated, so applications should still validate
+the protected operation on a trusted backend.
+"""
+
+from __future__ import annotations
+
+import statistics
 import time
-from math import sqrt
+from dataclasses import dataclass
+from typing import Sequence
+
+from PySide6.QtCore import QEasingCurve, QPointF, Property, QPropertyAnimation, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QKeyEvent, QPainter, QPen
 from PySide6.QtWidgets import QWidget
-from PySide6.QtCore import (
-    Qt,
-    QPropertyAnimation,
-    QEasingCurve,
-    Signal,
-    QRect,
-    Property,
-    QTimer,
-    QPoint,
-    QPointF,
-)
-from PySide6.QtGui import QPainter, QColor, QPen
+
+
+@dataclass(frozen=True, slots=True)
+class TrackPolicy:
+    """Tunable, deliberately conservative interaction checks."""
+
+    min_samples: int = 4
+    min_duration: float = 0.12
+    max_duration: float = 15.0
+    min_distance: float = 18.0
+    reject_perfect_linear_tracks: bool = True
+
+
+def analyze_track(
+    track: Sequence[tuple[float, float]], policy: TrackPolicy | None = None
+) -> dict[str, object]:
+    """Return one stable result for a pointer track."""
+
+    policy = policy or TrackPolicy()
+    if len(track) < policy.min_samples:
+        return {"result": False, "msg": ["滑动轨迹过短"]}
+
+    xs = [float(point[0]) for point in track]
+    ts = [float(point[1]) for point in track]
+    duration = ts[-1] - ts[0]
+    distance = abs(xs[-1] - xs[0])
+    if duration < policy.min_duration or duration > policy.max_duration:
+        return {"result": False, "msg": ["滑动时间异常"]}
+    if distance < policy.min_distance:
+        return {"result": False, "msg": ["滑动距离过短"]}
+
+    if policy.reject_perfect_linear_tracks and len(track) >= 6:
+        intervals = [ts[i] - ts[i - 1] for i in range(1, len(ts))]
+        deltas = [xs[i] - xs[i - 1] for i in range(1, len(xs))]
+        mean_interval = statistics.fmean(intervals)
+        mean_delta = statistics.fmean(deltas)
+        interval_spread = max(intervals) - min(intervals)
+        delta_spread = max(deltas) - min(deltas)
+        regular_timing = mean_interval > 0 and interval_spread <= max(0.0005, mean_interval * 0.01)
+        regular_motion = abs(mean_delta) > 0 and delta_spread <= max(0.05, abs(mean_delta) * 0.01)
+        if regular_timing and regular_motion:
+            return {"result": False, "msg": ["滑动轨迹过于规律"]}
+
+    return {"result": True, "msg": []}
 
 
 class VerificationSlider(QWidget):
+    """A keyboard-accessible verification slider with a stable public API."""
 
     resultSignal = Signal(dict)
     valueChanged = Signal(int)
@@ -24,478 +71,152 @@ class VerificationSlider(QWidget):
 
     NORMAL_PEN = QColor(201, 204, 207)
     NORMAL_BRUSH = QColor(255, 255, 255)
-    HOVER_PEN = QColor(25, 145, 250)
-    HOVER_BRUSH = QColor(255, 255, 255)
-    PRESSED_PEN = QColor(25, 145, 250)
-    PRESSED_BRUSH = QColor(25, 145, 250)
-    ERROR_PEN = QColor(245, 122, 122)
-    ERROR_BRUSH = QColor(245, 122, 122)
-    SUCCESS_PEN = QColor(82, 204, 186)
-    SUCCESS_BRUSH = QColor(82, 204, 186)
+    ACTIVE = QColor(25, 145, 250)
+    ERROR = QColor(220, 68, 78)
+    SUCCESS = QColor(29, 148, 122)
 
-    NORMAL_GROOVE_PEN = QColor(25, 145, 250)
-    NORMAL_GROOVE_BRUSH = QColor(209, 232, 254)
-    SUCCESS_GROOVE_PEN = QColor(117, 212, 199)
-    SUCCESS_GROOVE_BRUSH = QColor(210, 244, 239)
-    ERROR_GROOVE_PEN = QColor(245, 122, 122)
-    ERROR_GROOVE_BRUSH = QColor(252, 225, 225)
-
-    def __init__(self, parent=None):
-        super(VerificationSlider, self).__init__(parent)
+    def __init__(self, parent: QWidget | None = None, policy: TrackPolicy | None = None):
+        super().__init__(parent)
         self.setFixedSize(300, 40)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
-
-        self.isPressed = False
-        self.isHover = False
-        self.isError = False
-        self.isSuccess = False
-        self._value = 0
+        self.setAccessibleName("验证码滑块")
+        self.setAccessibleDescription("拖动或使用左右方向键移动，松开或按回车提交")
 
         self.minimum = 0
-        self.maximum = 300
+        self.maximum = 266
+        self._value = 0
+        self._pressed = False
+        self._hovered = False
+        self._state = "normal"
+        self._track: list[tuple[float, float]] = []
+        self._policy = policy or TrackPolicy()
+        self._animation = QPropertyAnimation(self, b"value", self)
+        self._animation.setDuration(360)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        self.grooveRect = QRect(1, 1, 300, 32)
-        self.sliderRect = QRect(1, 1, 32, 32)
-
-        self._sliderPenColor = self.NORMAL_PEN
-        self._sliderBrushColor = self.NORMAL_BRUSH
-
-        self._groovePenColor = self.NORMAL_GROOVE_PEN
-        self._grooveBrushColor = self.NORMAL_GROOVE_BRUSH
-
-        self.arrowColor = QColor(100, 106, 116)
-
-        self.penColorAnimation = QPropertyAnimation(self, b"sliderPenColor")
-        self.penColorAnimation.setDuration(200)
-        self.penColorAnimation.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        self.brushColorAnimation = QPropertyAnimation(self, b"sliderBrushColor")
-        self.brushColorAnimation.setDuration(200)
-        self.brushColorAnimation.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        self.moveTrack = []
-        self.startTime = 0
-        self.endTime = 0
-        self.isBot = False
-
-        self.resultDict = {"result": True, "value": 0, "endTime": 0, "msg": []}
-
-    def getSliderPenColor(self):
-        return self._sliderPenColor
-
-    def setSliderPenColor(self, color):
-        self._sliderPenColor = color
-        self.update()
-
-    sliderPenColor = Property(QColor, getSliderPenColor, setSliderPenColor)
-
-    def getSliderBrushColor(self):
-        return self._sliderBrushColor
-
-    def setSliderBrushColor(self, color):
-        self._sliderBrushColor = color
-        self.update()
-
-    sliderBrushColor = Property(QColor, getSliderBrushColor, setSliderBrushColor)
-
-    def _updateStateColors(self):
-
-        self.penColorAnimation.stop()
-        self.brushColorAnimation.stop()
-
-        if self.isError:
-            target_pen = self.ERROR_PEN
-            target_brush = self.ERROR_BRUSH
-            self._groovePenColor = self.ERROR_GROOVE_PEN
-            self._grooveBrushColor = self.ERROR_GROOVE_BRUSH
-            self.arrowColor = QColor(255, 255, 255)
-        elif self.isPressed:
-            target_pen = self.PRESSED_PEN
-            target_brush = self.PRESSED_BRUSH
-            self.arrowColor = QColor(255, 255, 255)
-        elif self.isHover:
-            target_pen = self.HOVER_PEN
-            target_brush = self.HOVER_BRUSH
-            self.arrowColor = QColor(100, 106, 116)
-        elif self.isSuccess:
-            self.isHover = False
-            self.isPressed = False
-            target_pen = self.SUCCESS_PEN
-            target_brush = self.SUCCESS_BRUSH
-            self._groovePenColor = self.SUCCESS_GROOVE_PEN
-            self._grooveBrushColor = self.SUCCESS_GROOVE_BRUSH
-            self.arrowColor = QColor(255, 255, 255)
-        else:
-            target_pen = self.NORMAL_PEN
-            target_brush = self.NORMAL_BRUSH
-            self._groovePenColor = self.NORMAL_GROOVE_PEN
-            self._grooveBrushColor = self.NORMAL_GROOVE_BRUSH
-            self.arrowColor = QColor(100, 106, 116)
-
-        self.penColorAnimation.setStartValue(self._sliderPenColor)
-        self.penColorAnimation.setEndValue(target_pen)
-        self.brushColorAnimation.setStartValue(self._sliderBrushColor)
-        self.brushColorAnimation.setEndValue(target_brush)
-
-        self.penColorAnimation.start()
-        self.brushColorAnimation.start()
-
-    def setError(self, error=True):
-        if self.isError != error:
-            self.isError = error
-            if error:
-                self.isSuccess = False
-            self._updateStateColors()
-
-    def setSuccess(self, success=True):
-        if self.isSuccess != success:
-            self.isSuccess = success
-            if success:
-
-                self.isPressed = False
-                self.isHover = False
-                self.isError = False
-            self._updateStateColors()
-
-    def mousePressEvent(self, event):
-        if self.isSuccess or self.isError:
-            return
-        if event.button() == Qt.MouseButton.LeftButton:
-            handleX = self.grooveRect.left() + self._value
-            handleX = max(
-                self.grooveRect.left() + 1,
-                min(handleX, self.grooveRect.right() - 32 + 1),
-            )
-            handleRect = QRect(int(handleX), 0, 32, 32)
-            if handleRect.contains(event.position().toPoint()):
-                self.isPressed = True
-                self._updateStateColors()
-                self.sliderPressed.emit()
-
-                self.startTime = time.time()
-                self.moveTrack = [(event.position().x(), time.time())]
-        super(VerificationSlider, self).mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if self.isSuccess or self.isError:
-            return
-        if event.button() == Qt.MouseButton.LeftButton and self.isPressed:
-            self.isPressed = False
-
-            self.endTime = time.time()
-
-            self.analyzeBehavior()
-            self.moveTrack = []
-
-            self.sliderReleased.emit()
-            self._updateStateColors()
-            if not self.isSuccess:
-                self.resetAnimation()
-
-        super(VerificationSlider, self).mouseReleaseEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self.isSuccess or self.isError:
-            return
-        handleX = self.grooveRect.left() + self._value
-        handleX = max(
-            self.grooveRect.left(), min(handleX, self.grooveRect.right() - 32)
-        )
-        handleRect = QRect(int(handleX), 0, 32, 32)
-
-        if self.isPressed:
-            new_x = max(
-                16,
-                min(
-                    event.position().x() - self.grooveRect.left(),
-                    self.grooveRect.width() - 18,
-                ),
-            )
-            new_x -= 16
-            self.setValue(int(new_x))
-            self.moveTrack.append((event.position().x(), time.time()))
-        else:
-            hover = handleRect.contains(event.position().toPoint())
-            if hover != self.isHover:
-                self.isHover = hover
-                self._updateStateColors()
-        super(VerificationSlider, self).mouseMoveEvent(event)
-
-    def leaveEvent(self, event):
-        if self.isSuccess or self.isError:
-            return
-        if self.isHover:
-            self.isHover = False
-            self._updateStateColors()
-        super(VerificationSlider, self).leaveEvent(event)
-
-    def getValue(self):
+    def getValue(self) -> int:
         return self._value
 
-    def setValue(self, value):
-        self._value = max(self.minimum, min(self.maximum, value))
+    def setValue(self, value: int) -> None:
+        bounded = max(self.minimum, min(self.maximum, int(value)))
+        if bounded == self._value:
+            return
+        self._value = bounded
+        self.valueChanged.emit(round(self._value * 300 / self.maximum))
         self.update()
-        mapped_value = int(self._value * 300.0 / 266.0)
-        self.valueChanged.emit(mapped_value)
 
     value = Property(int, getValue, setValue)
 
-    def paintEvent(self, event):
+    def setError(self, error: bool = True) -> None:
+        self._state = "error" if error else "normal"
+        self.update()
+
+    def setSuccess(self, success: bool = True) -> None:
+        self._state = "success" if success else "normal"
+        self.update()
+
+    def reset(self) -> None:
+        self._state = "normal"
+        self.setValue(0)
+        self.setEnabled(True)
+
+    def resetAnimation(self) -> None:
+        self._animation.stop()
+        self._animation.setStartValue(self._value)
+        self._animation.setEndValue(0)
+        self._animation.start()
+
+    def _submit(self) -> None:
+        result = analyze_track(self._track, self._policy)
+        result.update({"value": round(self._value * 300 / self.maximum), "endTime": time.monotonic()})
+        self.resultSignal.emit(result)
+        self.sliderReleased.emit()
+        if not result["result"]:
+            self.setError(True)
+            self.resetAnimation()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._state != "success":
+            handle = QRect(1 + self._value, 1, 32, 32)
+            if handle.adjusted(-4, -4, 4, 4).contains(event.position().toPoint()):
+                self._pressed = True
+                self._state = "normal"
+                self._track = [(event.position().x(), time.monotonic())]
+                self.sliderPressed.emit()
+                self.update()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._pressed:
+            self.setValue(round(event.position().x() - 17))
+            self._track.append((event.position().x(), time.monotonic()))
+        else:
+            hovered = QRect(1 + self._value, 1, 32, 32).adjusted(-4, -4, 4, 4).contains(
+                event.position().toPoint()
+            )
+            if hovered != self._hovered:
+                self._hovered = hovered
+                self.update()
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self._pressed:
+            self._track.append((event.position().x(), time.monotonic()))
+            self._pressed = False
+            self._submit()
+            self.update()
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            direction = -1 if event.key() == Qt.Key.Key_Left else 1
+            now = time.monotonic()
+            if not self._track:
+                self._track = [(float(self._value), now)]
+                self.sliderPressed.emit()
+            step = 1 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 8
+            self.setValue(self._value + direction * step)
+            self._track.append((float(self._value), now))
+            event.accept()
+            return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space) and self._track:
+            self._submit()
+            self._track = []
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def paintEvent(self, event) -> None:
+        del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        groove = QRect(1, 1, 298, 32)
+        state_color = self.SUCCESS if self._state == "success" else self.ERROR if self._state == "error" else self.ACTIVE
 
-        painter.setBrush(QColor(247, 249, 250))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(self.grooveRect, 3, 3)
+        painter.setBrush(QColor(241, 244, 247))
+        painter.drawRoundedRect(groove, 6, 6)
+        if self._value:
+            painter.setBrush(QColor(state_color.red(), state_color.green(), state_color.blue(), 42))
+            painter.drawRoundedRect(QRect(1, 1, self._value + 16, 32), 6, 6)
 
-        if self._value > 0:
-            filled_width = self._value
-            filled_rect = self.grooveRect.adjusted(
-                0, 0, filled_width - self.grooveRect.width() + 5, 0
-            )
-            painter.setPen(QPen(self._groovePenColor, 1))
-            painter.setBrush(self._grooveBrushColor)
-            painter.drawRoundedRect(filled_rect, 3, 3)
+        handle = QRect(1 + self._value, 1, 32, 32)
+        active_handle = self._pressed or self._state != "normal"
+        painter.setPen(QPen(state_color if (self._hovered or active_handle) else self.NORMAL_PEN, 1))
+        painter.setBrush(state_color if active_handle else self.NORMAL_BRUSH)
+        painter.drawRoundedRect(handle, 6, 6)
 
-        painter.setPen(QPen(self._sliderPenColor, 1))
-        painter.setBrush(self._sliderBrushColor)
-        self.sliderRect = QRect(1 + self._value, 1, 32, 32)
-        painter.drawRoundedRect(self.sliderRect, 3, 3)
-        if not self.sliderRect.isNull() and not self.isError and not self.isSuccess:
-
-            center = self.sliderRect.center()
-
-            arrow_length = 9
-            shaft_length = 9
-            shaft_width = 1.7
-            head_length = 3
-
-            shaft_start_x = center.x() - arrow_length // 2.5
-            shaft_end_x = shaft_start_x + shaft_length
-            shaft_y = center.y()
-
-            arrow_color = self.arrowColor
-            painter.setPen(QPen(arrow_color, shaft_width, Qt.SolidLine, Qt.RoundCap))
-            painter.setBrush(Qt.NoBrush)
-
-            painter.drawLine(
-                QPointF(shaft_start_x, shaft_y), QPointF(shaft_end_x, shaft_y)
-            )
-            painter.drawLine(
-                QPointF(shaft_end_x, shaft_y),
-                QPointF(shaft_end_x - head_length, shaft_y - head_length),
-            )
-            painter.drawLine(
-                QPointF(shaft_end_x, shaft_y),
-                QPointF(shaft_end_x - head_length, shaft_y + head_length),
-            )
-
-        if not self.sliderRect.isNull() and self.isError:
-            center = self.sliderRect.center()
-
-            cross_size = 4
-            line_width = 1.7
-
-            cross_color = QColor(255, 255, 255)
-            painter.setPen(QPen(cross_color, line_width, Qt.SolidLine, Qt.RoundCap))
-
-            painter.drawLine(
-                center.x() - cross_size + 1,
-                center.y() - cross_size,
-                center.x() + cross_size + 1,
-                center.y() + cross_size,
-            )
-
-            painter.drawLine(
-                center.x() - cross_size + 1,
-                center.y() + cross_size,
-                center.x() + cross_size + 1,
-                center.y() - cross_size,
-            )
-        if not self.sliderRect.isNull() and self.isSuccess:
-            center = self.sliderRect.center()
-            line_width = 1.7
-
-            check_color = QColor(255, 255, 255)
-            painter.setPen(QPen(check_color, line_width, Qt.SolidLine, Qt.RoundCap))
-
-            p1 = QPointF(center.x() - 3.5, center.y() - 0.5)
-            p2 = QPointF(center.x(), center.y() + 3)
-            p3 = QPointF(center.x() + 6.3, center.y() - 3)
-
-            painter.drawLine(p1, p2)
-            painter.drawLine(p2, p3)
-
-    def resetAnimation(self):
-        self.animation = QPropertyAnimation(self, b"value")
-        self.animation.setDuration(800)
-        self.animation.setStartValue(self._value)
-        self.animation.setEndValue(0)
-        self.animation.setEasingCurve(QEasingCurve.Type.OutQuint)
-        self.animation.start()
-        QTimer.singleShot(900, lambda: self.setError(False))
-        QTimer.singleShot(905, self._setHoverFalse)
-
-    def _setHoverFalse(self):
-        self.isHover = False
-
-    def analyzeBehavior(self):
-
-        self.isBot = False
-        track = self.moveTrack
-
-        if len(track) < 15:
-            self.isBot = True
-            self.resultDict["result"] = False
-            self.resultDict["msg"] = "滑动轨迹过短"
-            self.resultSignal.emit(self.resultDict)
-            return False
-
-        xs = [p[0] for p in track]
-        ts = [p[1] for p in track]
-        start_time = ts[0]
-        end_time = ts[-1]
-        total_time = end_time - start_time
-
-        total_distance = abs(xs[-1] - xs[0])
-        if total_distance < 5:
-            self.isBot = True
-            self.resultDict["result"] = False
-            self.resultDict["msg"] = "滑动距离过短"
-            self.resultSignal.emit(self.resultDict)
-            return False
-
-        if total_time < 0.3 or total_time > 5.0:
-            self.isBot = True
-            self.resultDict["result"] = False
-            self.resultDict["msg"] = "滑动时间异常"
-            self.resultSignal.emit(self.resultDict)
-            return False
-
-        backward_moves = 0
-        for i in range(1, len(xs)):
-            if xs[i] < xs[i - 1]:
-                backward_moves += 1
-        if backward_moves > 0:
-            self.isBot = True
-
-            self.resultDict["result"] = False
-            self.resultDict["msg"] = ["回退滑动异常"]
-            self.resultSignal.emit(self.resultDict)
-
-        speeds = []
-        for i in range(1, len(track)):
-            dt = ts[i] - ts[i - 1]
-            if dt > 0:
-                dx = abs(xs[i] - xs[i - 1])
-                speeds.append(dx / dt)
-            else:
-                speeds.append(0)
-
-        accelerations = []
-        for i in range(1, len(speeds)):
-            dt = ts[i] - ts[i - 1]
-            if dt > 0:
-                acc = (speeds[i] - speeds[i - 1]) / dt
-                accelerations.append(acc)
-            else:
-                accelerations.append(0)
-
-        jerks = []
-        for i in range(1, len(accelerations)):
-            dt = ts[i + 1] - ts[i]
-            if dt > 0:
-                jerk = (accelerations[i] - accelerations[i - 1]) / dt
-                jerks.append(jerk)
-            else:
-                jerks.append(0)
-
-        avg_speed = total_distance / total_time if total_time > 0 else 0
-
-        if len(speeds) > 1:
-            speed_mean = sum(speeds) / len(speeds)
-            speed_var = sum((s - speed_mean) ** 2 for s in speeds) / (len(speeds) - 1)
-            speed_std = sqrt(speed_var) if speed_var > 0 else 0
+        icon_color = QColor(255, 255, 255) if active_handle else QColor(86, 96, 109)
+        painter.setPen(QPen(icon_color, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        center = handle.center()
+        if self._state == "success":
+            painter.drawLine(QPointF(center.x() - 5, center.y()), QPointF(center.x() - 1, center.y() + 4))
+            painter.drawLine(QPointF(center.x() - 1, center.y() + 4), QPointF(center.x() + 6, center.y() - 4))
+        elif self._state == "error":
+            painter.drawLine(center.x() - 4, center.y() - 4, center.x() + 4, center.y() + 4)
+            painter.drawLine(center.x() + 4, center.y() - 4, center.x() - 4, center.y() + 4)
         else:
-            speed_std = 0
-
-        if len(accelerations) > 1:
-            acc_mean = sum(accelerations) / len(accelerations)
-            acc_var = sum((a - acc_mean) ** 2 for a in accelerations) / (
-                len(accelerations) - 1
-            )
-            acc_std = sqrt(acc_var) if acc_var > 0 else 0
-        else:
-            acc_std = 0
-
-        if len(jerks) > 1:
-            jerk_mean = sum(jerks) / len(jerks)
-            jerk_var = sum((j - jerk_mean) ** 2 for j in jerks) / (len(jerks) - 1)
-            jerk_std = sqrt(jerk_var) if jerk_var > 0 else 0
-        else:
-            jerk_std = 0
-
-        speed_changes = [abs(speeds[i] - speeds[i - 1]) for i in range(1, len(speeds))]
-        abrupt_changes = sum(1 for change in speed_changes if change > avg_speed * 0.5)
-
-        pauses = 0
-        for i in range(1, len(track)):
-            dt = ts[i] - ts[i - 1]
-            dx = abs(xs[i] - xs[i - 1])
-            if dt > 0.1 and dx < 2:
-                pauses += 1
-
-        if total_distance > 0:
-            deviations = []
-            for i, x in enumerate(xs):
-                t_ratio = (ts[i] - start_time) / total_time if total_time > 0 else 0
-                expected_x = xs[0] + (xs[-1] - xs[0]) * t_ratio
-                dev = abs(x - expected_x)
-                deviations.append(dev)
-            avg_deviation = sum(deviations) / len(deviations)
-        else:
-            avg_deviation = 0
-
-        speed_std_threshold = 10 + total_distance / 50
-        acc_std_threshold = 50 + total_distance / 10
-        jerk_std_threshold = 200 + total_distance / 5
-        pause_threshold = 1 + total_distance / 100
-        avg_dev_threshold = 2 + total_distance / 30
-
-        reasons = []
-        if speed_std < speed_std_threshold:
-            reasons.append(f"速度变化异常")
-        if acc_std < acc_std_threshold:
-            reasons.append(f"加速度变化异常")
-        if jerk_std < jerk_std_threshold:
-            reasons.append(f"加加速度变化异常")
-        if pauses < pause_threshold:
-            reasons.append(f"停顿次数异常")
-        if avg_deviation < avg_dev_threshold:
-            reasons.append(f"轨迹异常")
-        if abrupt_changes < 2:
-            reasons.append(f"速度突变异常")
-
-        if len(reasons) >= 3:
-            self.isBot = True
-
-            self.resultDict["result"] = False
-            self.resultDict["msg"] = reasons
-
-            self.resultSignal.emit(self.resultDict)
-
-        if total_time < 0.8 and avg_deviation < 1 and speed_std < 5:
-            self.isBot = True
-
-            self.resultDict["result"] = False
-            self.resultDict["msg"] = "极速滑动异常"
-
-            self.resultSignal.emit(self.resultDict)
-
-        if not self.isBot:
-            self.resultDict["result"] = True
-            self.resultDict["value"] = self._value * 300 // 266
-            self.resultDict["endTime"] = self.endTime
-            self.resultDict["msg"] = ""
-            self.resultSignal.emit(self.resultDict)
-        return True
+            painter.drawLine(center.x() - 5, center.y(), center.x() + 5, center.y())
+            painter.drawLine(center.x() + 2, center.y() - 3, center.x() + 5, center.y())
+            painter.drawLine(center.x() + 2, center.y() + 3, center.x() + 5, center.y())

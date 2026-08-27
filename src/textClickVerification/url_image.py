@@ -36,13 +36,20 @@ from PySide6.QtGui import (
 )
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
+from ..components.background import procedural_background
+
 
 class VerificationImage(QWidget):
     clickSignal = Signal(int, int)
     verificationComplete = Signal(bool, list)
+    challengeChanged = Signal(str)
+    loadingChanged = Signal(bool)
+    errorOccurred = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, image_url: str | None = None):
         super().__init__(parent=parent)
+
+        self.image_url = image_url
 
         self._width = 300
         self._height = 169
@@ -66,29 +73,34 @@ class VerificationImage(QWidget):
         self.verificationText = ""
 
         self.networkManager = QNetworkAccessManager(self)
+        self.networkManager.setTransferTimeout(5000)
         self.networkManager.finished.connect(self.onImageDownloaded)
 
         self.currentImage = QPixmap(self._width, self._height)
         self.currentImage.fill(QColor(200, 200, 200))
 
-        self.loading = True
-        self.loadImageFromUrl("https://api.elaina.cat/random/pc")
+        self.loading = False
+        if self.image_url:
+            self.loadImageFromUrl(self.image_url)
+        else:
+            self.fallbackToLocalImage()
 
     def loadImageFromUrl(self, url: str):
         self.loading = True
+        self.loadingChanged.emit(True)
         self.update()
         request = QNetworkRequest(QUrl(url))
         self.networkManager.get(request)
 
     def onImageDownloaded(self, reply: QNetworkReply):
         if reply.error() != QNetworkReply.NetworkError.NoError:
-            print(f"网络错误: {reply.errorString()}，使用灰色背景")
+            self.errorOccurred.emit(f"图片加载失败：{reply.errorString()}")
             self.fallbackToLocalImage()
         else:
             data = reply.readAll()
             pixmap = QPixmap()
             if not pixmap.loadFromData(data):
-                print("图片数据解析失败，使用灰色背景")
+                self.errorOccurred.emit("图片数据无法解析，已使用离线背景")
                 self.fallbackToLocalImage()
             else:
                 self.currentImage = pixmap.scaled(
@@ -98,14 +110,16 @@ class VerificationImage(QWidget):
                     Qt.TransformationMode.SmoothTransformation,
                 )
                 self.loading = False
+                self.loadingChanged.emit(False)
                 self.generateText()
                 self.update()
 
         reply.deleteLater()
 
     def fallbackToLocalImage(self):
-        self.currentImage.fill(QColor(200, 200, 200))
+        self.currentImage = procedural_background(self._width, self._height)
         self.loading = False
+        self.loadingChanged.emit(False)
         self.generateText()
         self.update()
 
@@ -192,6 +206,7 @@ class VerificationImage(QWidget):
             self.verificationText = "点击: 无"
 
         self.userClicks = []
+        self.challengeChanged.emit(self.verificationText)
         self.update()
 
     def paintEvent(self, event):
@@ -253,7 +268,7 @@ class VerificationImage(QWidget):
         self.verificationComplete.emit(success, correct)
 
     def reset(self):
-        self.loadImageFromUrl("https://api.elaina.cat/random/pc")
+        self.refreshImage()
 
     def refreshImage(self):
         if (
@@ -263,4 +278,7 @@ class VerificationImage(QWidget):
             self.animation.stop()
             self.animation.deleteLater()
             delattr(self, "animation")
-        self.loadImageFromUrl("https://api.elaina.cat/random/pc")
+        if self.image_url:
+            self.loadImageFromUrl(self.image_url)
+        else:
+            self.fallbackToLocalImage()

@@ -151,6 +151,7 @@ class Icon:
 
 class VerificationImage(QWidget):
     verificationComplete = Signal(bool, list)
+    challengeChanged = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -158,6 +159,7 @@ class VerificationImage(QWidget):
         self._width = 300
         self._height = 169
         self.setFixedSize(self._width, self._height)
+        self.setAccessibleName("图标点选验证码")
 
         self.iconTypes = [
             "circle",
@@ -319,6 +321,8 @@ class VerificationImage(QWidget):
             self.verificationText = "点击: 无"
 
         self.userClicks = []
+        self.challengeChanged.emit(self.verificationText)
+        self.setAccessibleDescription(self.verificationText)
         self.update()
 
     def paintEvent(self, event):
@@ -347,15 +351,11 @@ class VerificationImage(QWidget):
             self.verificationComplete.emit(False, [])
             return
 
-        tolerance = 25
         correct = []
-        for i, (userPos, targetPos) in enumerate(
-            zip(self.userClicks, self.targetPositions)
+        for i, (userPos, target_icon) in enumerate(
+            zip(self.userClicks, self.targetIcons)
         ):
-            distance = (
-                (userPos.x() - targetPos.x()) ** 2 + (userPos.y() - targetPos.y()) ** 2
-            ) ** 0.5
-            if distance <= tolerance:
+            if target_icon.contains(userPos):
                 correct.append(i)
 
         success = len(correct) == len(self.targetIcons)

@@ -31,9 +31,9 @@ from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPen, QPainte
 
 
 class VerificationImage(QWidget):
-    def __init__(self, imageList: List[QPixmap] = [], parent=None):
+    def __init__(self, imageList: List[QPixmap] | None = None, parent=None):
         super().__init__(parent=parent)
-        self.imageList = imageList
+        self.imageList = list(imageList or [])
 
         self._width = 300
         self._height = 169

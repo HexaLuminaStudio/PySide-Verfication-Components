@@ -32,16 +32,24 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPen, QPainterPath
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
+from ..components.background import procedural_background
+
 
 class VerificationImage(QWidget):
-    def __init__(self, parent=None):
+    loadingChanged = Signal(bool)
+    errorOccurred = Signal(str)
+
+    def __init__(self, parent=None, image_url: str | None = None):
         super().__init__(parent=parent)
+
+        self.image_url = image_url
 
         self._width = 300
         self._height = 169
         self.setFixedSize(self._width, self._height)
 
         self.network_manager = QNetworkAccessManager(self)
+        self.network_manager.setTransferTimeout(5000)
         self.network_manager.finished.connect(self.on_image_downloaded)
 
         self.currentImage = QPixmap(self._width, self._height)
@@ -51,13 +59,16 @@ class VerificationImage(QWidget):
         self.pixmapY = randint(40, self._height - 35 - 1)
         self._moveX = 1
 
-        self.loading = True
-
-        self.load_image_from_url("https://api.elaina.cat/random/pc")
+        self.loading = False
+        if self.image_url:
+            self.load_image_from_url(self.image_url)
+        else:
+            self.localImage()
 
     def load_image_from_url(self, url: str):
 
         self.loading = True
+        self.loadingChanged.emit(True)
         self.update()
         request = QNetworkRequest(QUrl(url))
         self.network_manager.get(request)
@@ -65,13 +76,13 @@ class VerificationImage(QWidget):
     def on_image_downloaded(self, reply: QNetworkReply):
 
         if reply.error() != QNetworkReply.NetworkError.NoError:
-            print(f"网络错误: {reply.errorString()}，使用本地图片备选")
+            self.errorOccurred.emit(f"图片加载失败：{reply.errorString()}")
             self.localImage()
         else:
             data = reply.readAll()
             pixmap = QPixmap()
             if not pixmap.loadFromData(data):
-                print("图片数据解析失败，使用本地图片备选")
+                self.errorOccurred.emit("图片数据无法解析，已使用离线背景")
                 self.localImage()
             else:
 
@@ -84,6 +95,7 @@ class VerificationImage(QWidget):
                 self.pixmapX = randint(50, self._width - 35 - 1)
                 self.pixmapY = randint(40, self._height - 35 - 1)
                 self.loading = False
+                self.loadingChanged.emit(False)
                 self.update()
 
         reply.deleteLater()
@@ -103,11 +115,12 @@ class VerificationImage(QWidget):
         return rect_path.united(circle_path)
 
     def localImage(self):
-        self.currentImage.fill(QColor(200, 200, 200))
+        self.currentImage = procedural_background(self._width, self._height)
 
         self.pixmapX = randint(50, self._width - 35 - 1)
         self.pixmapY = randint(40, self._height - 35 - 1)
         self.loading = False
+        self.loadingChanged.emit(False)
         self.update()
 
     def paintEvent(self, event):
@@ -199,7 +212,12 @@ class VerificationImage(QWidget):
             self.animation.deleteLater()
             delattr(self, "animation")
 
-        self.load_image_from_url("https://api.elaina.cat/random/pc")
+        if self.image_url:
+            self.load_image_from_url(self.image_url)
+        else:
+            self.localImage()
+
+    refreshImage = refresh_image
 
 
 if __name__ == "__main__":

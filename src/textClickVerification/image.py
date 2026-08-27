@@ -38,9 +38,9 @@ class VerificationImage(QWidget):
     clickSignal = Signal(int, int)
     verificationComplete = Signal(bool, list)
 
-    def __init__(self, imageList: List[QPixmap] = [], parent=None):
+    def __init__(self, imageList: List[QPixmap] | None = None, parent=None):
         super().__init__(parent=parent)
-        self.imageList = imageList
+        self.imageList = list(imageList or [])
 
         self._width = 300
         self._height = 169
