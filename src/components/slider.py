@@ -9,10 +9,21 @@ from __future__ import annotations
 
 import statistics
 import time
+from math import pi, sin
 from dataclasses import dataclass
 from typing import Sequence
 
-from PySide6.QtCore import QEasingCurve, QPointF, Property, QPropertyAnimation, QRect, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractAnimation,
+    QEasingCurve,
+    QParallelAnimationGroup,
+    QPointF,
+    Property,
+    QPropertyAnimation,
+    QRect,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QColor, QKeyEvent, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -64,6 +75,11 @@ def analyze_track(
 class VerificationSlider(QWidget):
     """A keyboard-accessible verification slider with a stable public API."""
 
+    ERROR_RETURN_DURATION_MS = 520
+    ERROR_SHAKE_DURATION_MS = 360
+    SUCCESS_DURATION_MS = 360
+    HOVER_DURATION_MS = 160
+
     resultSignal = Signal(dict)
     valueChanged = Signal(int)
     sliderPressed = Signal()
@@ -89,11 +105,37 @@ class VerificationSlider(QWidget):
         self._pressed = False
         self._hovered = False
         self._state = "normal"
+        self._hover_progress = 0.0
+        self._feedback_progress = 0.0
+        self._shake_offset = 0.0
         self._track: list[tuple[float, float]] = []
         self._policy = policy or TrackPolicy()
-        self._animation = QPropertyAnimation(self, b"value", self)
-        self._animation.setDuration(360)
-        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._reset_animation = QPropertyAnimation(self, b"value")
+        self._reset_animation.setDuration(self.ERROR_RETURN_DURATION_MS)
+        self._reset_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation = self._reset_animation  # compatibility with earlier releases
+
+        self._shake_animation = QPropertyAnimation(self, b"shakeOffset")
+        self._shake_animation.setDuration(self.ERROR_SHAKE_DURATION_MS)
+        self._shake_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        for step, offset in ((0.0, 0.0), (0.18, -4.0), (0.38, 4.0), (0.58, -3.0), (0.78, 2.0), (1.0, 0.0)):
+            self._shake_animation.setKeyValueAt(step, offset)
+
+        self._error_animation = QParallelAnimationGroup(self)
+        self._error_animation.addAnimation(self._reset_animation)
+        self._error_animation.addAnimation(self._shake_animation)
+        self._error_animation.finished.connect(self._finish_error_feedback)
+
+        self._success_animation = QPropertyAnimation(self, b"feedbackProgress", self)
+        self._success_animation.setDuration(self.SUCCESS_DURATION_MS)
+        self._success_animation.setStartValue(0.0)
+        self._success_animation.setEndValue(1.0)
+        self._success_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        self._hover_animation = QPropertyAnimation(self, b"hoverProgress", self)
+        self._hover_animation.setDuration(self.HOVER_DURATION_MS)
+        self._hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
     def getValue(self) -> int:
         return self._value
@@ -108,33 +150,118 @@ class VerificationSlider(QWidget):
 
     value = Property(int, getValue, setValue)
 
+    def getHoverProgress(self) -> float:
+        return self._hover_progress
+
+    def setHoverProgress(self, progress: float) -> None:
+        self._hover_progress = max(0.0, min(1.0, float(progress)))
+        self.update()
+
+    hoverProgress = Property(float, getHoverProgress, setHoverProgress)
+
+    def getFeedbackProgress(self) -> float:
+        return self._feedback_progress
+
+    def setFeedbackProgress(self, progress: float) -> None:
+        self._feedback_progress = max(0.0, min(1.0, float(progress)))
+        self.update()
+
+    feedbackProgress = Property(float, getFeedbackProgress, setFeedbackProgress)
+
+    def getShakeOffset(self) -> float:
+        return self._shake_offset
+
+    def setShakeOffset(self, offset: float) -> None:
+        self._shake_offset = float(offset)
+        self.update()
+
+    shakeOffset = Property(float, getShakeOffset, setShakeOffset)
+
     def setError(self, error: bool = True) -> None:
-        self._state = "error" if error else "normal"
+        if not error:
+            self._error_animation.stop()
+            self._state = "normal"
+            self._shake_offset = 0.0
+            self._feedback_progress = 0.0
+            self.setEnabled(True)
+        else:
+            self._state = "error"
         self.update()
 
     def setSuccess(self, success: bool = True) -> None:
-        self._state = "success" if success else "normal"
+        self._success_animation.stop()
+        if success:
+            self._error_animation.stop()
+            self._state = "success"
+            self._pressed = False
+            self._hovered = False
+            self.setEnabled(False)
+            self._success_animation.start()
+        else:
+            self._state = "normal"
+            self._feedback_progress = 0.0
+            self.setEnabled(True)
         self.update()
 
     def reset(self) -> None:
+        self._error_animation.stop()
+        self._success_animation.stop()
+        self._hover_animation.stop()
         self._state = "normal"
+        self._pressed = False
+        self._hovered = False
+        self._hover_progress = 0.0
+        self._feedback_progress = 0.0
+        self._shake_offset = 0.0
+        self._track = []
         self.setValue(0)
         self.setEnabled(True)
+        self.update()
 
     def resetAnimation(self) -> None:
-        self._animation.stop()
-        self._animation.setStartValue(self._value)
-        self._animation.setEndValue(0)
-        self._animation.start()
+        """Compatibility alias for the consolidated error feedback animation."""
+
+        self.showErrorAndReset()
+
+    def showErrorAndReset(self) -> None:
+        """Run one interrupt-safe error animation and restore the normal state."""
+
+        if self._error_animation.state() == QAbstractAnimation.State.Running:
+            return
+        self._success_animation.stop()
+        self._state = "error"
+        self._pressed = False
+        self._hovered = False
+        self._feedback_progress = 1.0
+        self.setEnabled(False)
+        self._reset_animation.setStartValue(self._value)
+        self._reset_animation.setEndValue(0)
+        self._error_animation.start()
+        self.update()
+
+    def _finish_error_feedback(self) -> None:
+        self._state = "normal"
+        self._feedback_progress = 0.0
+        self._shake_offset = 0.0
+        self._track = []
+        self.setEnabled(True)
+        self.update()
+
+    def _set_hovered(self, hovered: bool) -> None:
+        if hovered == self._hovered:
+            return
+        self._hovered = hovered
+        self._hover_animation.stop()
+        self._hover_animation.setStartValue(self._hover_progress)
+        self._hover_animation.setEndValue(1.0 if hovered else 0.0)
+        self._hover_animation.start()
 
     def _submit(self) -> None:
         result = analyze_track(self._track, self._policy)
         result.update({"value": round(self._value * 300 / self.maximum), "endTime": time.monotonic()})
         self.resultSignal.emit(result)
         self.sliderReleased.emit()
-        if not result["result"]:
-            self.setError(True)
-            self.resetAnimation()
+        self._track = []
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._state != "success":
@@ -142,6 +269,8 @@ class VerificationSlider(QWidget):
             if handle.adjusted(-4, -4, 4, 4).contains(event.position().toPoint()):
                 self._pressed = True
                 self._state = "normal"
+                self._hover_animation.stop()
+                self._hover_progress = 1.0
                 self._track = [(event.position().x(), time.monotonic())]
                 self.sliderPressed.emit()
                 self.update()
@@ -155,16 +284,21 @@ class VerificationSlider(QWidget):
             hovered = QRect(1 + self._value, 1, 32, 32).adjusted(-4, -4, 4, 4).contains(
                 event.position().toPoint()
             )
-            if hovered != self._hovered:
-                self._hovered = hovered
-                self.update()
+            self._set_hovered(hovered)
         super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        if not self._pressed:
+            self._set_hovered(False)
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._pressed:
             self._track.append((event.position().x(), time.monotonic()))
             self._pressed = False
             self._submit()
+            if self.isEnabled():
+                self._set_hovered(self.rect().contains(event.position().toPoint()))
             self.update()
         super().mouseReleaseEvent(event)
 
@@ -197,13 +331,28 @@ class VerificationSlider(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(241, 244, 247))
         painter.drawRoundedRect(groove, 6, 6)
+        if self.hasFocus() and self._state == "normal":
+            painter.setPen(QPen(QColor(25, 145, 250, 150), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(groove.adjusted(0, 0, -1, -1), 6, 6)
+            painter.setPen(Qt.PenStyle.NoPen)
         if self._value:
             painter.setBrush(QColor(state_color.red(), state_color.green(), state_color.blue(), 42))
             painter.drawRoundedRect(QRect(1, 1, self._value + 16, 32), 6, 6)
 
-        handle = QRect(1 + self._value, 1, 32, 32)
+        pulse = sin(pi * self._feedback_progress) if self._state == "success" else 0.0
+        grow = round(pulse * 1.5)
+        handle = QRect(1 + self._value + round(self._shake_offset), 1, 32, 32).adjusted(
+            -grow, -grow, grow, grow
+        )
         active_handle = self._pressed or self._state != "normal"
-        painter.setPen(QPen(state_color if (self._hovered or active_handle) else self.NORMAL_PEN, 1))
+        hover_mix = 1.0 if active_handle else self._hover_progress
+        pen_color = QColor(
+            round(self.NORMAL_PEN.red() + (state_color.red() - self.NORMAL_PEN.red()) * hover_mix),
+            round(self.NORMAL_PEN.green() + (state_color.green() - self.NORMAL_PEN.green()) * hover_mix),
+            round(self.NORMAL_PEN.blue() + (state_color.blue() - self.NORMAL_PEN.blue()) * hover_mix),
+        )
+        painter.setPen(QPen(pen_color, 1))
         painter.setBrush(state_color if active_handle else self.NORMAL_BRUSH)
         painter.drawRoundedRect(handle, 6, 6)
 

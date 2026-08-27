@@ -1,37 +1,32 @@
 import sys
 import random
-from random import randint
-from typing import List, Tuple, Optional
+from typing import List
 
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
-    QLabel,
     QVBoxLayout,
-    QHBoxLayout,
 )
 from PySide6.QtCore import (
     Qt,
     QPropertyAnimation,
-    QEasingCurve,
     Signal,
     QPoint,
-    QSize,
     QRectF,
-    QRect,
-    Property,
 )
 from PySide6.QtGui import (
-    QIcon,
     QPixmap,
     QPainter,
     QColor,
-    QFont,
     QPen,
     QPainterPath,
     QMouseEvent,
     QBrush,
 )
+
+from ..components.background import procedural_background
+from ..components.glyphs import draw_text_challenge
+from ..components.rendering import cover_pixmap, effective_dpr
 
 
 class VerificationImage(QWidget):
@@ -44,6 +39,7 @@ class VerificationImage(QWidget):
 
         self._width = 300
         self._height = 169
+        self._dpr = effective_dpr(self)
         self.setFixedSize(self._width, self._height)
 
         self.characters = "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸"
@@ -66,84 +62,25 @@ class VerificationImage(QWidget):
         self.generateImage()
 
     def generateImage(self):
-        self.currentImage = QPixmap(self._width, self._height)
-        self.currentImage.fill(QColor(240, 240, 240))
-
-        painter = QPainter(self.currentImage)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        charPositions = []
-        displayedChars = []
-        attempts = 0
-        maxAttempts = 100
-
-        while len(charPositions) < 12 and attempts < maxAttempts:
-            attempts += 1
-            char = random.choice(self.characters)
-
-            if char in displayedChars:
-                continue
-
-            fontSize = randint(*self.fontSizeRange)
-            font = QFont("SimHei", fontSize)
-            painter.setFont(font)
-
-            charWidth = painter.boundingRect(
-                0, 0, 100, 100, Qt.AlignmentFlag.AlignLeft, char
-            ).width()
-            charHeight = painter.boundingRect(
-                0, 0, 100, 100, Qt.AlignmentFlag.AlignTop, char
-            ).height()
-
-            x = randint(10, self._width - charWidth - 10)
-            y = randint(10, self._height - charHeight - 10)
-
-            rect = QRect(x, y, charWidth, charHeight)
-            overlap = False
-            for existingRect in charPositions:
-                if rect.intersects(existingRect):
-                    overlap = True
-                    break
-
-            if not overlap:
-                charPositions.append(rect)
-                displayedChars.append(char)
-                color = random.choice(self.fontColors)
-                painter.setPen(QPen(color))
-
-                painter.save()
-
-                rotation = randint(-15, 15)
-                painter.translate(x + charWidth / 2, y + charHeight / 2)
-                painter.rotate(rotation)
-                painter.translate(-(x + charWidth / 2), -(y + charHeight / 2))
-
-                opacity = random.uniform(0.7, 1.0)
-                painter.setOpacity(opacity)
-
-                painter.drawText(x, y + charHeight - 5, char)
-
-                painter.restore()
-
-        painter.end()
-
-        if charPositions:
-
-            targetCount = min(3, len(displayedChars))
-
-            self.targetChars = random.sample(displayedChars, targetCount)
-            self.targetPositions = []
-
-            for char in self.targetChars:
-                if char in displayedChars:
-                    charIndex = displayedChars.index(char)
-                    if charIndex < len(charPositions):
-                        self.targetPositions.append(charPositions[charIndex].center())
-
-            if len(self.targetPositions) != len(self.targetChars):
-
-                self.targetChars = self.targetChars[: len(self.targetPositions)]
-
+        if self.imageList:
+            self.currentImage = cover_pixmap(
+                random.choice(self.imageList), self._width, self._height, dpr=self._dpr
+            )
+        else:
+            self.currentImage = procedural_background(
+                self._width, self._height, dpr=self._dpr
+            )
+        placements = draw_text_challenge(
+            self.currentImage,
+            width=self._width,
+            height=self._height,
+            characters=self.characters,
+            font_size_range=self.fontSizeRange,
+        )
+        if placements:
+            targets = random.sample(placements, min(3, len(placements)))
+            self.targetChars = [target.character for target in targets]
+            self.targetPositions = [target.bounds.center().toPoint() for target in targets]
             self.verificationText = "点击: " + " ".join(self.targetChars)
         else:
             self.targetChars = []
@@ -156,6 +93,7 @@ class VerificationImage(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         path = QPainterPath()
         rect = QRectF(0, 0, self._width, self._height)

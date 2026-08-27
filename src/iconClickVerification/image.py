@@ -1,368 +1,322 @@
-import random
-import math
-from typing import List, Optional
+from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPoint, QRect, QSize, Signal
-from PySide6.QtWidgets import QWidget
+import math
+import random
+from typing import Optional
+
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import (
-    QPainter,
-    QColor,
-    QPixmap,
-    QFont,
-    QPen,
     QBrush,
-    QPainterPath,
+    QColor,
     QMouseEvent,
+    QPainter,
+    QPainterPath,
+    QPainterPathStroker,
+    QPen,
 )
+from PySide6.QtWidgets import QWidget
+
+from ..components.rendering import effective_dpr, new_canvas
 
 
 class Icon:
+    COLORS = (
+        QColor("#c83349"),
+        QColor("#00875a"),
+        QColor("#2459c4"),
+        QColor("#d36b00"),
+        QColor("#8a45b8"),
+        QColor("#007f91"),
+    )
+
     def __init__(self, icon_type: str, x: int, y: int, size: int):
         self.iconType = icon_type
         self.x = x
         self.y = y
         self.size = size
-        self.colors = [
-            QColor(255, 0, 0),
-            QColor(0, 255, 0),
-            QColor(0, 0, 255),
-            QColor(255, 255, 0),
-            QColor(255, 0, 255),
-            QColor(0, 255, 255),
-        ]
-        self.color = random.choice(self.colors)
+        self.color = random.choice(self.COLORS)
 
-    def draw(self, painter: QPainter):
-        painter.save()
-        painter.setPen(QPen(self.color, 2))
-        painter.setBrush(QBrush(self.color, Qt.BrushStyle.Dense1Pattern))
+    @property
+    def bounds(self) -> QRect:
+        return QRect(self.x, self.y, self.size, self.size)
 
-        center_x = self.x + self.size // 2
-        center_y = self.y + self.size // 2
-        half_size = self.size // 2
+    def _regular_polygon(self, sides: int, radius_scale: float = 0.9) -> QPainterPath:
+        center = QPointF(self.x + self.size / 2, self.y + self.size / 2)
+        radius = self.size / 2 * radius_scale
+        path = QPainterPath()
+        for index in range(sides):
+            angle = 2 * math.pi * index / sides - math.pi / 2
+            point = QPointF(
+                center.x() + radius * math.cos(angle),
+                center.y() + radius * math.sin(angle),
+            )
+            path.moveTo(point) if index == 0 else path.lineTo(point)
+        path.closeSubpath()
+        return path
+
+    def path(self) -> QPainterPath:
+        inset = 2.0
+        x, y, size = float(self.x), float(self.y), float(self.size)
+        rect = QRectF(x + inset, y + inset, size - inset * 2, size - inset * 2)
+        path = QPainterPath()
 
         if self.iconType == "circle":
-            painter.drawEllipse(self.x, self.y, self.size, self.size)
+            path.addEllipse(rect)
         elif self.iconType == "square":
-            painter.drawRect(self.x, self.y, self.size, self.size)
+            path.addRoundedRect(rect, 2.5, 2.5)
         elif self.iconType == "triangle":
-            path = QPainterPath()
-            path.moveTo(center_x, self.y)
-            path.lineTo(self.x, self.y + self.size)
-            path.lineTo(self.x + self.size, self.y + self.size)
+            path.moveTo(x + size / 2, y + inset)
+            path.lineTo(x + size - inset, y + size - inset)
+            path.lineTo(x + inset, y + size - inset)
             path.closeSubpath()
-            painter.drawPath(path)
         elif self.iconType == "star":
-            path = QPainterPath()
-            outerRadius = half_size * 0.9
-            innerRadius = half_size * 0.4
-            for i in range(10):
-                angle = 2 * 3.14159 * i / 10 - 3.14159 / 2
-                if i % 2 == 0:
-                    radius = outerRadius
-                else:
-                    radius = innerRadius
-                x = center_x + radius * math.cos(angle)
-                y = center_y + radius * math.sin(angle)
-                if i == 0:
-                    path.moveTo(x, y)
-                else:
-                    path.lineTo(x, y)
+            center_x, center_y = x + size / 2, y + size / 2
+            outer, inner = size * 0.46, size * 0.2
+            for index in range(10):
+                radius = outer if index % 2 == 0 else inner
+                angle = math.pi * index / 5 - math.pi / 2
+                point = QPointF(
+                    center_x + radius * math.cos(angle),
+                    center_y + radius * math.sin(angle),
+                )
+                path.moveTo(point) if index == 0 else path.lineTo(point)
             path.closeSubpath()
-            painter.drawPath(path)
         elif self.iconType == "cross":
-            painter.drawLine(
-                self.x + self.size // 4,
-                self.y + self.size // 4,
-                self.x + self.size * 3 // 4,
-                self.y + self.size * 3 // 4,
-            )
-            painter.drawLine(
-                self.x + self.size * 3 // 4,
-                self.y + self.size // 4,
-                self.x + self.size // 4,
-                self.y + self.size * 3 // 4,
-            )
+            path.moveTo(x + size * 0.22, y + size * 0.22)
+            path.lineTo(x + size * 0.78, y + size * 0.78)
+            path.moveTo(x + size * 0.78, y + size * 0.22)
+            path.lineTo(x + size * 0.22, y + size * 0.78)
         elif self.iconType == "diamond":
-            path = QPainterPath()
-            path.moveTo(center_x, self.y)
-            path.lineTo(self.x + self.size, center_y)
-            path.lineTo(center_x, self.y + self.size)
-            path.lineTo(self.x, center_y)
+            path.moveTo(x + size / 2, y + inset)
+            path.lineTo(x + size - inset, y + size / 2)
+            path.lineTo(x + size / 2, y + size - inset)
+            path.lineTo(x + inset, y + size / 2)
             path.closeSubpath()
-            painter.drawPath(path)
         elif self.iconType == "pentagon":
-            path = QPainterPath()
-            for i in range(5):
-                angle = 2 * 3.14159 * i / 5 - 3.14159 / 2
-                x = center_x + half_size * 0.9 * math.cos(angle)
-                y = center_y + half_size * 0.9 * math.sin(angle)
-                if i == 0:
-                    path.moveTo(x, y)
-                else:
-                    path.lineTo(x, y)
-            path.closeSubpath()
-            painter.drawPath(path)
+            return self._regular_polygon(5)
         elif self.iconType == "hexagon":
-            path = QPainterPath()
-            for i in range(6):
-                angle = 2 * 3.14159 * i / 6 - 3.14159 / 2
-                x = center_x + half_size * 0.9 * math.cos(angle)
-                y = center_y + half_size * 0.9 * math.sin(angle)
-                if i == 0:
-                    path.moveTo(x, y)
-                else:
-                    path.lineTo(x, y)
-            path.closeSubpath()
-            painter.drawPath(path)
+            return self._regular_polygon(6)
         elif self.iconType == "heart":
-            path = QPainterPath()
-            size = self.size
-            x = self.x
-            y = self.y
-            path.moveTo(x + size // 2, y + size // 4)
-            path.cubicTo(x + size // 2, y, x, y, x, y + size // 4)
+            path.moveTo(x + size / 2, y + size * 0.9)
             path.cubicTo(
-                x,
-                y + size // 2,
-                x + size // 2,
-                y + size * 3 // 4,
-                x + size // 2,
-                y + size,
+                x + size * 0.13,
+                y + size * 0.66,
+                x + size * 0.03,
+                y + size * 0.42,
+                x + size * 0.08,
+                y + size * 0.28,
             )
             path.cubicTo(
-                x + size // 2,
-                y + size * 3 // 4,
-                x + size,
-                y + size // 2,
-                x + size,
-                y + size // 4,
+                x + size * 0.15,
+                y + size * 0.07,
+                x + size * 0.39,
+                y + size * 0.08,
+                x + size / 2,
+                y + size * 0.27,
             )
-            path.cubicTo(x + size, y, x + size // 2, y, x + size // 2, y + size // 4)
-            painter.drawPath(path)
+            path.cubicTo(
+                x + size * 0.61,
+                y + size * 0.08,
+                x + size * 0.85,
+                y + size * 0.07,
+                x + size * 0.92,
+                y + size * 0.28,
+            )
+            path.cubicTo(
+                x + size * 0.97,
+                y + size * 0.42,
+                x + size * 0.87,
+                y + size * 0.66,
+                x + size / 2,
+                y + size * 0.9,
+            )
+            path.closeSubpath()
         elif self.iconType == "ellipse":
-            painter.drawEllipse(self.x, self.y, self.size, int(self.size * 0.6))
+            ellipse_height = size * 0.62
+            path.addEllipse(
+                QRectF(
+                    x + inset,
+                    y + (size - ellipse_height) / 2,
+                    size - inset * 2,
+                    ellipse_height,
+                )
+            )
+        return path
 
+    def draw(self, painter: QPainter) -> None:
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(self.color, 2.2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        if self.iconType == "cross":
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        else:
+            fill = QColor(self.color)
+            fill.setAlpha(50)
+            painter.setBrush(QBrush(fill))
+        painter.drawPath(self.path())
         painter.restore()
 
     def contains(self, point: QPoint) -> bool:
-        return QRect(self.x, self.y, self.size, self.size).contains(point)
+        path = self.path()
+        if self.iconType == "cross":
+            stroker = QPainterPathStroker()
+            stroker.setWidth(12)
+            path = stroker.createStroke(path)
+        return path.contains(QPointF(point))
 
 
 class VerificationImage(QWidget):
     verificationComplete = Signal(bool, list)
     challengeChanged = Signal(str)
 
+    TYPE_NAMES = {
+        "circle": "圆形",
+        "square": "正方形",
+        "triangle": "三角形",
+        "star": "星形",
+        "cross": "叉形",
+        "diamond": "菱形",
+        "pentagon": "五边形",
+        "hexagon": "六边形",
+        "heart": "心形",
+        "ellipse": "椭圆",
+    }
+    COLOR_NAMES = {
+        "#c83349": "红色",
+        "#00875a": "绿色",
+        "#2459c4": "蓝色",
+        "#d36b00": "橙色",
+        "#8a45b8": "紫色",
+        "#007f91": "青色",
+    }
+
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-
         self._width = 300
         self._height = 169
+        self._dpr = effective_dpr(self)
         self.setFixedSize(self._width, self._height)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName("图标点选验证码")
+        self.keyboardCursor = QPoint(self._width // 2, self._height // 2)
 
-        self.iconTypes = [
-            "circle",
-            "square",
-            "triangle",
-            "star",
-            "cross",
-            "diamond",
-            "pentagon",
-            "hexagon",
-            "heart",
-            "ellipse",
-        ]
-        self.icons = []
-        self.targetIcons = []
-        self.targetPositions = []
-        self.userClicks = []
+        self.iconTypes = list(self.TYPE_NAMES)
+        self.icons: list[Icon] = []
+        self.targetIcons: list[Icon] = []
+        self.targetPositions: list[QPoint] = []
+        self.userClicks: list[QPoint] = []
         self.verificationText = ""
-
         self.generateImage()
 
-    def generateImage(self):
-        self.currentImage = QPixmap(self._width, self._height)
-        self.currentImage.fill(QColor(240, 240, 240))
-
+    def generateImage(self) -> None:
+        self.currentImage = new_canvas(
+            self._width, self._height, dpr=self._dpr, color=QColor("#f3f5f8")
+        )
         painter = QPainter(self.currentImage)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
         self.icons.clear()
-        minIconSize = 30
-        maxIconSize = 50
-        padding = 20
-        attempts = 0
-        maxAttempts = 100
 
-        requiredTypes = self.iconTypes.copy()
-        random.shuffle(requiredTypes)
-
-        for iconType in requiredTypes:
+        types = self.iconTypes.copy()
+        random.shuffle(types)
+        for icon_type in types:
             if len(self.icons) >= 9:
                 break
-
-            placed = False
-            typeAttempts = 0
-            maxTypeAttempts = 50
-
-            while not placed and typeAttempts < maxTypeAttempts:
-                typeAttempts += 1
-                iconSize = random.randint(minIconSize, maxIconSize)
-                x = random.randint(padding, self._width - iconSize - padding)
-                y = random.randint(padding, self._height - iconSize - padding)
-
-                newIcon = Icon(iconType, x, y, iconSize)
-                overlap = False
-
-                for existingIcon in self.icons:
-                    if QRect(
-                        newIcon.x, newIcon.y, newIcon.size, newIcon.size
-                    ).intersects(
-                        QRect(
-                            existingIcon.x,
-                            existingIcon.y,
-                            existingIcon.size,
-                            existingIcon.size,
-                        )
-                    ):
-                        overlap = True
-                        break
-
-                if not overlap:
-                    self.icons.append(newIcon)
-                    newIcon.draw(painter)
-                    placed = True
-
-        while len(self.icons) < 9 and attempts < maxAttempts:
-            attempts += 1
-
-            typeCounts = {}
-            for icon in self.icons:
-                if icon.iconType not in typeCounts:
-                    typeCounts[icon.iconType] = 0
-                typeCounts[icon.iconType] += 1
-
-            weights = []
-            for iconType in self.iconTypes:
-                count = typeCounts.get(iconType, 0)
-                weight = 1.0 / (count + 1)
-                weights.append(weight)
-
-            iconType = random.choices(self.iconTypes, weights=weights, k=1)[0]
-
-            iconSize = random.randint(minIconSize, maxIconSize)
-            x = random.randint(padding, self._width - iconSize - padding)
-            y = random.randint(padding, self._height - iconSize - padding)
-
-            newIcon = Icon(iconType, x, y, iconSize)
-            overlap = False
-
-            for existingIcon in self.icons:
-                if QRect(newIcon.x, newIcon.y, newIcon.size, newIcon.size).intersects(
-                    QRect(
-                        existingIcon.x,
-                        existingIcon.y,
-                        existingIcon.size,
-                        existingIcon.size,
-                    )
-                ):
-                    overlap = True
-                    break
-
-            if not overlap:
-                self.icons.append(newIcon)
-                newIcon.draw(painter)
-
+            for _ in range(80):
+                size = random.randint(30, 46)
+                x = random.randint(16, self._width - size - 16)
+                y = random.randint(16, self._height - size - 16)
+                candidate = Icon(icon_type, x, y, size)
+                occupied = candidate.bounds.adjusted(-5, -5, 5, 5)
+                if any(occupied.intersects(icon.bounds) for icon in self.icons):
+                    continue
+                self.icons.append(candidate)
+                candidate.draw(painter)
+                break
         painter.end()
 
-        if self.icons:
-            targetCount = min(3, len(self.icons))
-            self.targetIcons = random.sample(self.icons, targetCount)
-
-            self.targetPositions = [
-                QPoint(icon.x + icon.size // 2, icon.y + icon.size // 2)
-                for icon in self.targetIcons
-            ]
-
-            colorNames = {
-                (255, 0, 0): "红色",
-                (0, 255, 0): "绿色",
-                (0, 0, 255): "蓝色",
-                (255, 255, 0): "黄色",
-                (255, 0, 255): "紫色",
-                (0, 255, 255): "青色",
-            }
-
-            typeNames = {
-                "circle": "圆形",
-                "square": "正方形",
-                "triangle": "三角形",
-                "star": "星形",
-                "cross": "叉形",
-                "diamond": "菱形",
-                "pentagon": "五边形",
-                "hexagon": "六边形",
-                "heart": "心形",
-                "ellipse": "椭圆",
-            }
-
-            targetDescriptions = []
-            for icon in self.targetIcons:
-                colorKey = (icon.color.red(), icon.color.green(), icon.color.blue())
-                colorName = colorNames.get(colorKey, "未知颜色")
-                typeName = typeNames.get(icon.iconType, icon.iconType)
-                targetDescriptions.append(f"{colorName}的{typeName}")
-
-            self.verificationText = "点击: " + " ".join(targetDescriptions)
-        else:
-            self.targetIcons = []
-            self.targetPositions = []
-            self.verificationText = "点击: 无"
-
+        self.targetIcons = random.sample(self.icons, min(3, len(self.icons)))
+        self.targetPositions = [icon.bounds.center() for icon in self.targetIcons]
+        descriptions = [
+            f"{self.COLOR_NAMES[icon.color.name()]}的{self.TYPE_NAMES[icon.iconType]}"
+            for icon in self.targetIcons
+        ]
+        self.verificationText = "点击: " + " ".join(descriptions) if descriptions else "点击: 无"
         self.userClicks = []
         self.challengeChanged.emit(self.verificationText)
         self.setAccessibleDescription(self.verificationText)
         self.update()
 
-    def paintEvent(self, event):
+    def paintEvent(self, event) -> None:
+        del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.drawPixmap(QPoint(0, 0), self.currentImage)
 
-        for i, pos in enumerate(self.userClicks):
-            painter.setPen(QPen(QColor(255, 0, 0), 2))
-            painter.setBrush(QBrush(QColor(255, 0, 0, 50)))
-            painter.drawEllipse(pos, 10, 10)
-            painter.drawText(pos.x() + 15, pos.y() + 5, str(i + 1))
+        marker_pen = QPen(QColor("#d92d3e"), 2)
+        marker_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(marker_pen)
+        painter.setBrush(QColor(217, 45, 62, 38))
+        for index, position in enumerate(self.userClicks):
+            painter.drawEllipse(position, 10, 10)
+            painter.drawText(position.x() + 14, position.y() + 5, str(index + 1))
+
+        if self.hasFocus():
+            painter.setPen(QPen(QColor("#28344a"), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(self.keyboardCursor, 7, 7)
+            painter.drawLine(self.keyboardCursor.x() - 10, self.keyboardCursor.y(), self.keyboardCursor.x() + 10, self.keyboardCursor.y())
+            painter.drawLine(self.keyboardCursor.x(), self.keyboardCursor.y() - 10, self.keyboardCursor.x(), self.keyboardCursor.y() + 10)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            pos = event.pos()
-            self.userClicks.append(pos)
+            self.setFocus()
+            self.userClicks.append(event.position().toPoint())
             self.update()
-
             if len(self.userClicks) == len(self.targetIcons):
                 self.verify()
 
-    def verify(self):
-        if len(self.userClicks) != len(self.targetPositions):
+    def keyPressEvent(self, event) -> None:
+        moves = {
+            Qt.Key.Key_Left: QPoint(-8, 0),
+            Qt.Key.Key_Right: QPoint(8, 0),
+            Qt.Key.Key_Up: QPoint(0, -8),
+            Qt.Key.Key_Down: QPoint(0, 8),
+        }
+        if event.key() in moves:
+            candidate = self.keyboardCursor + moves[event.key()]
+            self.keyboardCursor = QPoint(
+                max(0, min(self._width - 1, candidate.x())),
+                max(0, min(self._height - 1, candidate.y())),
+            )
+            self.update()
+            event.accept()
+            return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.userClicks.append(QPoint(self.keyboardCursor))
+            self.update()
+            if len(self.userClicks) == len(self.targetIcons):
+                self.verify()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def verify(self) -> None:
+        if len(self.userClicks) != len(self.targetIcons):
             self.verificationComplete.emit(False, [])
             return
+        correct = [
+            index
+            for index, (position, target) in enumerate(zip(self.userClicks, self.targetIcons))
+            if target.contains(position)
+        ]
+        self.verificationComplete.emit(len(correct) == len(self.targetIcons), correct)
 
-        correct = []
-        for i, (userPos, target_icon) in enumerate(
-            zip(self.userClicks, self.targetIcons)
-        ):
-            if target_icon.contains(userPos):
-                correct.append(i)
-
-        success = len(correct) == len(self.targetIcons)
-        self.verificationComplete.emit(success, correct)
-
-    def reset(self):
+    def reset(self) -> None:
         self.generateImage()
 
-    def refreshImage(self):
+    def refreshImage(self) -> None:
         self.generateImage()

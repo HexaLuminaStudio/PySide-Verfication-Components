@@ -65,8 +65,8 @@ class SliderVerificationCard(QWidget):
         if isinstance(reasons, str):
             reasons = [reasons]
         self.verifySlider.setSuccess(False)
-        self.verifySlider.setError(True)
         self._refresh()
+        self.verifySlider.showErrorAndReset()
         self.verificationFailed.emit("；".join(str(reason) for reason in reasons))
 
     def reset(self) -> None:
@@ -148,7 +148,7 @@ class VerificationFlyoutBase(Flyout):
         super().__init__(view, parent, isDeleteOnClose=True)
         self.view = view
         card.verificationSuccess.connect(self._close_successfully)
-        card.verificationFailed.connect(self.failed)
+        card.verificationFailed.connect(self.failed.emit)
 
     @classmethod
     def create(
@@ -169,4 +169,5 @@ class VerificationFlyoutBase(Flyout):
 
     def _close_successfully(self) -> None:
         self.success.emit()
-        QTimer.singleShot(180, self.fadeOut)
+        delay = 420 if hasattr(self.view.card, "verifySlider") else 180
+        QTimer.singleShot(delay, self.fadeOut)

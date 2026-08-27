@@ -1,20 +1,8 @@
-import sys
-import time
-import random
 from random import randint
-from math import sqrt
 from typing import List
 
 from PySide6.QtWidgets import (
-    QApplication,
     QWidget,
-    QLabel,
-    QSlider,
-    QStyle,
-    QStyleOptionSlider,
-    QMessageBox,
-    QVBoxLayout,
-    QHBoxLayout,
 )
 from PySide6.QtCore import (
     Qt,
@@ -22,37 +10,39 @@ from PySide6.QtCore import (
     QEasingCurve,
     Signal,
     QPoint,
-    QSize,
     QRectF,
-    QRect,
     Property,
 )
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPen, QPainterPath
+from PySide6.QtGui import QPixmap, QPainter, QColor, QPen, QPainterPath
+
+from ..components.background import procedural_background
+from ..components.rendering import copy_logical, cover_pixmap, effective_dpr
 
 
 class VerificationImage(QWidget):
+    errorOccurred = Signal(str)
+
     def __init__(self, imageList: List[QPixmap] | None = None, parent=None):
         super().__init__(parent=parent)
         self.imageList = list(imageList or [])
 
         self._width = 300
         self._height = 169
+        self._dpr = effective_dpr(self)
         self.setFixedSize(self._width, self._height)
 
         try:
-            idx = randint(0, 12)
-            self.currentImage = self.imageList[idx].scaled(
-                self._width,
-                self._height,
-                Qt.AspectRatioMode.IgnoreAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
+            idx = randint(0, len(self.imageList) - 1)
+            self.currentImage = cover_pixmap(
+                self.imageList[idx], self._width, self._height, dpr=self._dpr
             )
             if self.currentImage.isNull():
-                raise Exception("图片加载失败")
-        except Exception as e:
-            print(f"图片加载失败: {e}，使用灰色背景")
-            self.currentImage = QPixmap(self._width, self._height)
-            self.currentImage.fill(QColor(200, 200, 200))
+                raise ValueError("图片为空")
+        except (IndexError, ValueError, TypeError) as error:
+            self.errorOccurred.emit(f"图片加载失败：{error}")
+            self.currentImage = procedural_background(
+                self._width, self._height, dpr=self._dpr
+            )
 
         self.pixmapX = randint(50, self._width - 35 - 1)
         self.pixmapY = randint(40, self._height - 35 - 1)
@@ -62,6 +52,7 @@ class VerificationImage(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         path = QPainterPath()
         rect = QRectF(0, 0, self._width, self._height)
@@ -69,7 +60,7 @@ class VerificationImage(QWidget):
         painter.setClipPath(path)
         painter.drawPixmap(QPoint(0, 0), self.currentImage)
 
-        shadowPixmap = self.currentImage.copy(self.pixmapX, self.pixmapY, 35, 35)
+        shadowPixmap = copy_logical(self.currentImage, self.pixmapX, self.pixmapY, 35, 35)
         shadowPainter = QPainter(shadowPixmap)
         shadowPainter.setCompositionMode(
             QPainter.CompositionMode.CompositionMode_SourceAtop
@@ -78,11 +69,11 @@ class VerificationImage(QWidget):
         shadowPainter.end()
         painter.drawPixmap(QPoint(self.pixmapX, self.pixmapY), shadowPixmap)
 
-        movePixmap = self.currentImage.copy(self.pixmapX, self.pixmapY, 35, 35)
+        movePixmap = copy_logical(self.currentImage, self.pixmapX, self.pixmapY, 35, 35)
         movePainter = QPainter(movePixmap)
         movePainter.setPen(QPen(QColor(255, 255, 255), 2))
         movePainter.setBrush(Qt.BrushStyle.NoBrush)
-        movePainter.drawRect(0, 0, 34, 34)
+        movePainter.drawRect(QRectF(1, 1, 33, 33))
         movePainter.end()
         painter.drawPixmap(QPoint(self._moveX, self.pixmapY), movePixmap)
 
@@ -123,18 +114,16 @@ class VerificationImage(QWidget):
 
         try:
             idx = randint(0, len(self.imageList) - 1)
-            self.currentImage = QPixmap(self.imageList[idx]).scaled(
-                self._width,
-                self._height,
-                Qt.AspectRatioMode.IgnoreAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
+            self.currentImage = cover_pixmap(
+                QPixmap(self.imageList[idx]), self._width, self._height, dpr=self._dpr
             )
             if self.currentImage.isNull():
-                raise Exception("图片加载失败")
-        except Exception as e:
-            print(f"图片加载失败: {e}，使用灰色背景")
-            self.currentImage = QPixmap(self._width, self._height)
-            self.currentImage.fill(QColor(200, 200, 200))
+                raise ValueError("图片为空")
+        except (IndexError, ValueError, TypeError) as error:
+            self.errorOccurred.emit(f"图片加载失败：{error}")
+            self.currentImage = procedural_background(
+                self._width, self._height, dpr=self._dpr
+            )
 
         self.pixmapX = randint(50, self._width - 35 - 1)
         self.pixmapY = randint(40, self._height - 35 - 1)

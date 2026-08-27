@@ -1,14 +1,7 @@
-import sys
 import random
 import math
 from PySide6.QtWidgets import (
-    QApplication,
     QWidget,
-    QSlider,
-    QMessageBox,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
 )
 from PySide6.QtCore import (
     Qt,
@@ -25,6 +18,7 @@ from PySide6.QtGui import QPixmap, QPainter, QColor, QFont, QPen, QPainterPath
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
 from ..components.background import procedural_background
+from ..components.rendering import copy_logical, cover_pixmap, effective_dpr, new_canvas
 
 
 class VerificationImage(QWidget):
@@ -38,16 +32,16 @@ class VerificationImage(QWidget):
 
         self._width = 300
         self._height = 169
+        self._dpr = effective_dpr(self)
         self.setFixedSize(self._width, self._height)
 
         
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.setTransferTimeout(5000)
-        self.network_manager.finished.connect(self.on_image_downloaded)
+        self._active_reply = None
 
         
-        self.currentImage = QPixmap(self._width, self._height)
-        self.currentImage.fill(QColor(200, 200, 200))
+        self.currentImage = new_canvas(self._width, self._height, dpr=self._dpr)
 
         
         self.centerX = self._width // 2  
@@ -75,9 +69,19 @@ class VerificationImage(QWidget):
         self.loadingChanged.emit(True)
         self.update()
         request = QNetworkRequest(QUrl(url))
-        self.network_manager.get(request)
+        if self._active_reply is not None:
+            self._active_reply.abort()
+            self._active_reply.deleteLater()
+        self._active_reply = self.network_manager.get(request)
+        self._active_reply.finished.connect(
+            lambda reply=self._active_reply: self.on_image_downloaded(reply)
+        )
 
     def on_image_downloaded(self, reply: QNetworkReply):
+        if reply is not self._active_reply:
+            reply.deleteLater()
+            return
+        self._active_reply = None
         if reply.error() != QNetworkReply.NetworkError.NoError:
             self.errorOccurred.emit(f"图片加载失败：{reply.errorString()}")
             self.fallback_to_local_image()
@@ -88,11 +92,8 @@ class VerificationImage(QWidget):
                 self.errorOccurred.emit("图片数据无法解析，已使用离线背景")
                 self.fallback_to_local_image()
             else:
-                self.currentImage = pixmap.scaled(
-                    self._width,
-                    self._height,
-                    Qt.AspectRatioMode.IgnoreAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
+                self.currentImage = cover_pixmap(
+                    pixmap, self._width, self._height, dpr=self._dpr
                 )
                 
                 self.generate_circle_and_gap()
@@ -102,7 +103,9 @@ class VerificationImage(QWidget):
         reply.deleteLater()
 
     def fallback_to_local_image(self):
-        self.currentImage = procedural_background(self._width, self._height)
+        self.currentImage = procedural_background(
+            self._width, self._height, dpr=self._dpr
+        )
         self.generate_circle_and_gap()
         self.loading = False
         self.loadingChanged.emit(False)
@@ -135,8 +138,8 @@ class VerificationImage(QWidget):
                 self.gapX = gx
                 self.gapY = gy
                 
-                self.sliderPixmap = self.currentImage.copy(
-                    int(gx - 17.5), int(gy - 17.5), 35, 35
+                self.sliderPixmap = copy_logical(
+                    self.currentImage, gx - 17.5, gy - 17.5, 35, 35
                 )
                 self.currentAngle = 0.0  
                 return
@@ -147,8 +150,8 @@ class VerificationImage(QWidget):
         self.gapAngle = 0.0
         self.gapX = self.centerX + self.radius
         self.gapY = self.centerY
-        self.sliderPixmap = self.currentImage.copy(
-            int(self.gapX - 17.5), int(self.gapY - 17.5), 35, 35
+        self.sliderPixmap = copy_logical(
+            self.currentImage, self.gapX - 17.5, self.gapY - 17.5, 35, 35
         )
         self.currentAngle = 0.0
 
@@ -190,8 +193,8 @@ class VerificationImage(QWidget):
         )
 
         
-        shadowPixmap = self.currentImage.copy(
-            int(self.gapX - 17.5), int(self.gapY - 17.5), 35, 35
+        shadowPixmap = copy_logical(
+            self.currentImage, self.gapX - 17.5, self.gapY - 17.5, 35, 35
         )
         shadowPainter = QPainter(shadowPixmap)
         shadowPainter.setCompositionMode(

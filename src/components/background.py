@@ -7,14 +7,16 @@ import secrets
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPixmap
 
+from .rendering import new_canvas
 
-def procedural_background(width: int, height: int) -> QPixmap:
+
+def procedural_background(width: int, height: int, *, dpr: float = 1.0) -> QPixmap:
     """Create a lightweight, non-empty background without network access."""
 
     hue = secrets.randbelow(60) + 195
     start = QColor.fromHsv(hue, 52, 235)
     end = QColor.fromHsv((hue + 24) % 360, 78, 168)
-    pixmap = QPixmap(width, height)
+    pixmap = new_canvas(width, height, dpr=dpr)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     gradient = QLinearGradient(QPointF(0, 0), QPointF(width, height))

@@ -1,71 +1,81 @@
 import sys
-from PySide6.QtWidgets import (
-    QApplication,
-    QWidget,
-    QVBoxLayout,
-    QPushButton,
-    QGridLayout,
-)
 
-from src.basicSliderVerification import VerificationFlyout as NormalVerificationFlyout
-from src.figureSliderVerification import VerificationFlyout as FigureVerificationFlyout
-from src.circleSliderVerification import VerificationFlyout as CircleVerificationFlyout
-from src.textClickVerification import VerificationFlyout as TextClickVerificationFlyout
-from src.iconClickVerification import VerificationFlyout as IconClickVerificationFlyout
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QGridLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+
+from pyside_verification import (
+    BasicSliderFlyout,
+    CircleSliderFlyout,
+    FigureSliderFlyout,
+    IconClickFlyout,
+    TextClickFlyout,
+)
 
 
 class Demo(QWidget):
-    def __init__(self):
+    COMPONENTS = (
+        ("普通滑动验证码", BasicSliderFlyout),
+        ("形状滑动验证码", FigureSliderFlyout),
+        ("圆形滑动验证码", CircleSliderFlyout),
+        ("文字点选验证码", TextClickFlyout),
+        ("图标点选验证码", IconClickFlyout),
+    )
+
+    def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("验证码示例")
-        # self.setMinimumSize(400, 300)
+        self.setWindowTitle("PySide 验证码组件")
+        self.setMinimumWidth(440)
 
-        layout = QGridLayout(self)
+        title = QLabel("选择一种验证方式", self)
+        title.setObjectName("title")
+        description = QLabel("组件默认离线运行，也可以在业务代码中传入图片服务地址。", self)
+        description.setWordWrap(True)
+        description.setObjectName("description")
+        self.status = QLabel("尚未开始验证", self)
+        self.status.setObjectName("status")
+        self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        normalVer = QPushButton("普通滑动验证码", self)
-        normalVer.clicked.connect(self.showNormalVer)
-        layout.addWidget(normalVer, 0, 0)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+        for index, (label, flyout_class) in enumerate(self.COMPONENTS):
+            button = QPushButton(label, self)
+            button.setMinimumHeight(42)
+            button.clicked.connect(
+                lambda _checked=False, source=button, name=label, cls=flyout_class: self.show_verification(
+                    source, name, cls
+                )
+            )
+            grid.addWidget(button, index // 2, index % 2)
 
-        fighureVer = QPushButton("形状滑动验证码", self)
-        fighureVer.clicked.connect(self.showFigureVer)
-        layout.addWidget(fighureVer, 0, 1)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 24)
+        layout.setSpacing(12)
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addSpacing(4)
+        layout.addLayout(grid)
+        layout.addSpacing(4)
+        layout.addWidget(self.status)
 
-        circleVer = QPushButton("圆形滑动验证码", self)
-        circleVer.clicked.connect(self.showCircleVer)
-        layout.addWidget(circleVer, 1, 0)
+        self.setStyleSheet(
+            """
+            QWidget { background: #f6f8fb; color: #172033; font-family: "Microsoft YaHei UI"; }
+            QLabel#title { font-size: 22px; font-weight: 600; }
+            QLabel#description { color: #566176; font-size: 13px; }
+            QLabel#status { background: #e9eef6; border-radius: 6px; padding: 9px; color: #3d4b62; }
+            QPushButton { background: #ffffff; border: 1px solid #d8deea; border-radius: 7px; padding: 8px 14px; }
+            QPushButton:hover { border-color: #198ff2; color: #0876d1; }
+            QPushButton:pressed { background: #edf6fe; }
+            QPushButton:focus { border: 2px solid #0876d1; }
+            """
+        )
 
-        textClickVer = QPushButton("文字点选验证码", self)
-        textClickVer.clicked.connect(self.showTextClickVer)
-        layout.addWidget(textClickVer, 1, 1)
-
-        iconClickVer = QPushButton("图标点选验证码", self)
-        iconClickVer.clicked.connect(self.showIconClickVer)
-        layout.addWidget(iconClickVer, 2, 0)
-
-    def showNormalVer(self):
-
-        a = NormalVerificationFlyout.create(target=self.sender(), parent=self)
-        a.success.connect(lambda: print("普通滑动验证码验证成功"))
-
-    def showFigureVer(self):
-
-        a = FigureVerificationFlyout.create(target=self.sender(), parent=self)
-        a.success.connect(lambda: print("形状滑动验证码验证成功"))
-
-    def showCircleVer(self):
-
-        a = CircleVerificationFlyout.create(target=self.sender(), parent=self)
-        a.success.connect(lambda: print("圆形滑动验证码验证成功"))
-
-    def showTextClickVer(self):
-
-        a = TextClickVerificationFlyout.create(target=self.sender(), parent=self)
-        a.success.connect(lambda: print("文字点选验证码验证成功"))
-
-    def showIconClickVer(self):
-
-        a = IconClickVerificationFlyout.create(target=self.sender(), parent=self)
-        a.success.connect(lambda: print("图标点选验证码验证成功"))
+    def show_verification(self, source: QPushButton, name: str, flyout_class: type) -> None:
+        self.status.setText(f"正在进行：{name}")
+        flyout = flyout_class.create(target=source, parent=self)
+        flyout.success.connect(lambda: self.status.setText(f"验证成功：{name}"))
+        flyout.failed.connect(lambda reason: self.status.setText(f"验证失败：{reason}，请重试"))
 
 
 if __name__ == "__main__":

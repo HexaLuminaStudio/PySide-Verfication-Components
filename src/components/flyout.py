@@ -175,8 +175,8 @@ class FlyoutAnimationManager(QObject):
         raise NotImplementedError
 
     def _adjustPosition(self, pos):
-        screen = QApplication.primaryScreen()
-        rect = screen.geometry() if screen else QRect(0, 0, 1920, 1080)
+        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
+        rect = screen.availableGeometry() if screen else QRect(0, 0, 1920, 1080)
         w, h = self.flyout.sizeHint().width() + 5, self.flyout.sizeHint().height()
         x = max(rect.left(), min(pos.x(), rect.right() - w))
         y = max(rect.top(), min(pos.y() - 4, rect.bottom() - h + 5))

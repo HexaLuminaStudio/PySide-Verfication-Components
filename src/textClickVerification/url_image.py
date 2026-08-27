@@ -1,30 +1,17 @@
-import sys
 import random
-from random import randint
-from typing import List, Tuple, Optional
 
 from PySide6.QtWidgets import (
-    QApplication,
     QWidget,
-    QLabel,
-    QVBoxLayout,
-    QHBoxLayout,
 )
 from PySide6.QtCore import (
     Qt,
     QPropertyAnimation,
-    QEasingCurve,
     Signal,
     QPoint,
-    QSize,
     QRectF,
-    QRect,
-    Property,
     QUrl,
-    QByteArray,
 )
 from PySide6.QtGui import (
-    QIcon,
     QPixmap,
     QPainter,
     QColor,
@@ -37,6 +24,8 @@ from PySide6.QtGui import (
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
 from ..components.background import procedural_background
+from ..components.glyphs import draw_text_challenge
+from ..components.rendering import cover_pixmap, effective_dpr, new_canvas
 
 
 class VerificationImage(QWidget):
@@ -53,7 +42,11 @@ class VerificationImage(QWidget):
 
         self._width = 300
         self._height = 169
+        self._dpr = effective_dpr(self)
         self.setFixedSize(self._width, self._height)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName("文字点选验证码")
+        self.keyboardCursor = QPoint(self._width // 2, self._height // 2)
 
         self.characters = "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸"
         self.fontSizeRange = (20, 35)
@@ -74,10 +67,9 @@ class VerificationImage(QWidget):
 
         self.networkManager = QNetworkAccessManager(self)
         self.networkManager.setTransferTimeout(5000)
-        self.networkManager.finished.connect(self.onImageDownloaded)
+        self._activeReply = None
 
-        self.currentImage = QPixmap(self._width, self._height)
-        self.currentImage.fill(QColor(200, 200, 200))
+        self.currentImage = new_canvas(self._width, self._height, dpr=self._dpr)
 
         self.loading = False
         if self.image_url:
@@ -90,9 +82,19 @@ class VerificationImage(QWidget):
         self.loadingChanged.emit(True)
         self.update()
         request = QNetworkRequest(QUrl(url))
-        self.networkManager.get(request)
+        if self._activeReply is not None:
+            self._activeReply.abort()
+            self._activeReply.deleteLater()
+        self._activeReply = self.networkManager.get(request)
+        self._activeReply.finished.connect(
+            lambda reply=self._activeReply: self.onImageDownloaded(reply)
+        )
 
     def onImageDownloaded(self, reply: QNetworkReply):
+        if reply is not self._activeReply:
+            reply.deleteLater()
+            return
+        self._activeReply = None
         if reply.error() != QNetworkReply.NetworkError.NoError:
             self.errorOccurred.emit(f"图片加载失败：{reply.errorString()}")
             self.fallbackToLocalImage()
@@ -103,11 +105,8 @@ class VerificationImage(QWidget):
                 self.errorOccurred.emit("图片数据无法解析，已使用离线背景")
                 self.fallbackToLocalImage()
             else:
-                self.currentImage = pixmap.scaled(
-                    self._width,
-                    self._height,
-                    Qt.AspectRatioMode.IgnoreAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
+                self.currentImage = cover_pixmap(
+                    pixmap, self._width, self._height, dpr=self._dpr
                 )
                 self.loading = False
                 self.loadingChanged.emit(False)
@@ -117,88 +116,26 @@ class VerificationImage(QWidget):
         reply.deleteLater()
 
     def fallbackToLocalImage(self):
-        self.currentImage = procedural_background(self._width, self._height)
+        self.currentImage = procedural_background(
+            self._width, self._height, dpr=self._dpr
+        )
         self.loading = False
         self.loadingChanged.emit(False)
         self.generateText()
         self.update()
 
     def generateText(self):
-        painter = QPainter(self.currentImage)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        charPositions = []
-        displayedChars = []
-        attempts = 0
-        maxAttempts = 100
-
-        while len(charPositions) < 12 and attempts < maxAttempts:
-            attempts += 1
-            char = random.choice(self.characters)
-
-            if char in displayedChars:
-                continue
-
-            fontSize = randint(*self.fontSizeRange)
-            font = QFont("微软雅黑", fontSize)
-            painter.setFont(font)
-
-            charWidth = painter.boundingRect(
-                0, 0, 100, 100, Qt.AlignmentFlag.AlignLeft, char
-            ).width()
-            charHeight = painter.boundingRect(
-                0, 0, 100, 100, Qt.AlignmentFlag.AlignTop, char
-            ).height()
-
-            x = randint(10, self._width - charWidth - 10)
-            y = randint(10, self._height - charHeight - 10)
-
-            rect = QRect(x, y, charWidth, charHeight)
-            overlap = False
-            for existingRect in charPositions:
-                if rect.intersects(existingRect):
-                    overlap = True
-                    break
-
-            if not overlap:
-                charPositions.append(rect)
-                displayedChars.append(char)
-                color = random.choice(self.fontColors)
-                painter.setPen(QPen(color))
-
-                painter.save()
-
-                rotation = randint(-15, 15)
-                painter.translate(x + charWidth / 2, y + charHeight / 2)
-                painter.rotate(rotation)
-                painter.translate(-(x + charWidth / 2), -(y + charHeight / 2))
-
-                opacity = random.uniform(0.7, 1.0)
-                painter.setOpacity(opacity)
-
-                painter.drawText(x, y + charHeight - 5, char)
-
-                painter.restore()
-
-        painter.end()
-
-        if charPositions:
-
-            targetCount = min(3, len(displayedChars))
-
-            self.targetChars = random.sample(displayedChars, targetCount)
-            self.targetPositions = []
-
-            for char in self.targetChars:
-                if char in displayedChars:
-                    charIndex = displayedChars.index(char)
-                    if charIndex < len(charPositions):
-                        self.targetPositions.append(charPositions[charIndex].center())
-
-            if len(self.targetPositions) != len(self.targetChars):
-
-                self.targetChars = self.targetChars[: len(self.targetPositions)]
-
+        placements = draw_text_challenge(
+            self.currentImage,
+            width=self._width,
+            height=self._height,
+            characters=self.characters,
+            font_size_range=self.fontSizeRange,
+        )
+        if placements:
+            targets = random.sample(placements, min(3, len(placements)))
+            self.targetChars = [target.character for target in targets]
+            self.targetPositions = [target.bounds.center().toPoint() for target in targets]
             self.verificationText = "点击: " + " ".join(self.targetChars)
         else:
             self.targetChars = []
@@ -207,11 +144,13 @@ class VerificationImage(QWidget):
 
         self.userClicks = []
         self.challengeChanged.emit(self.verificationText)
+        self.setAccessibleDescription(self.verificationText)
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         path = QPainterPath()
         rect = QRectF(0, 0, self._width, self._height)
@@ -224,6 +163,12 @@ class VerificationImage(QWidget):
             painter.setBrush(QBrush(QColor(255, 0, 0, 50)))
             painter.drawEllipse(pos, 10, 10)
             painter.drawText(pos.x() + 15, pos.y() + 5, str(i + 1))
+
+        if self.hasFocus() and not self.loading:
+            painter.setPen(QPen(QColor(255, 255, 255), 2))
+            painter.drawEllipse(self.keyboardCursor, 7, 7)
+            painter.drawLine(self.keyboardCursor.x() - 10, self.keyboardCursor.y(), self.keyboardCursor.x() + 10, self.keyboardCursor.y())
+            painter.drawLine(self.keyboardCursor.x(), self.keyboardCursor.y() - 10, self.keyboardCursor.x(), self.keyboardCursor.y() + 10)
 
         if self.loading:
             painter.save()
@@ -240,12 +185,40 @@ class VerificationImage(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and not self.loading:
+            self.setFocus()
             pos = event.pos()
             self.userClicks.append(pos)
             self.update()
 
             if len(self.userClicks) == len(self.targetChars):
                 self.verify()
+
+    def keyPressEvent(self, event) -> None:
+        if self.loading:
+            return super().keyPressEvent(event)
+        moves = {
+            Qt.Key.Key_Left: QPoint(-8, 0),
+            Qt.Key.Key_Right: QPoint(8, 0),
+            Qt.Key.Key_Up: QPoint(0, -8),
+            Qt.Key.Key_Down: QPoint(0, 8),
+        }
+        if event.key() in moves:
+            candidate = self.keyboardCursor + moves[event.key()]
+            self.keyboardCursor = QPoint(
+                max(0, min(self._width - 1, candidate.x())),
+                max(0, min(self._height - 1, candidate.y())),
+            )
+            self.update()
+            event.accept()
+            return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.userClicks.append(QPoint(self.keyboardCursor))
+            self.update()
+            if len(self.userClicks) == len(self.targetChars):
+                self.verify()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def verify(self):
         if len(self.userClicks) != len(self.targetPositions):

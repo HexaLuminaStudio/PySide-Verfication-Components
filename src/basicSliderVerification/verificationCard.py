@@ -25,6 +25,3 @@ class VerificationCard(SliderVerificationCard):
 
 class VerificationFlyout(VerificationFlyoutBase):
     card_class = VerificationCard
-
-
-VerificationFlyoutView = type("VerificationFlyoutView", (), {})  # compatibility name

@@ -1,20 +1,7 @@
-import sys
-import time
-import random
 from random import randint
-from math import sqrt
-from typing import List, Optional
 
 from PySide6.QtWidgets import (
-    QApplication,
     QWidget,
-    QLabel,
-    QSlider,
-    QStyle,
-    QStyleOptionSlider,
-    QMessageBox,
-    QVBoxLayout,
-    QHBoxLayout,
 )
 from PySide6.QtCore import (
     Qt,
@@ -22,17 +9,15 @@ from PySide6.QtCore import (
     QEasingCurve,
     Signal,
     QPoint,
-    QSize,
     QRectF,
-    QRect,
     Property,
     QUrl,
-    QByteArray,
 )
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPen, QPainterPath
+from PySide6.QtGui import QPixmap, QPainter, QColor, QFont, QPen, QPainterPath
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
 from ..components.background import procedural_background
+from ..components.rendering import copy_logical, cover_pixmap, effective_dpr, new_canvas
 
 
 class VerificationImage(QWidget):
@@ -46,14 +31,14 @@ class VerificationImage(QWidget):
 
         self._width = 300
         self._height = 169
+        self._dpr = effective_dpr(self)
         self.setFixedSize(self._width, self._height)
 
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.setTransferTimeout(5000)
-        self.network_manager.finished.connect(self.on_image_downloaded)
+        self._active_reply = None
 
-        self.currentImage = QPixmap(self._width, self._height)
-        self.currentImage.fill(QColor(200, 200, 200))
+        self.currentImage = new_canvas(self._width, self._height, dpr=self._dpr)
 
         self.pixmapX = randint(50, self._width - 35 - 1)
         self.pixmapY = randint(40, self._height - 35 - 1)
@@ -71,9 +56,19 @@ class VerificationImage(QWidget):
         self.loadingChanged.emit(True)
         self.update()
         request = QNetworkRequest(QUrl(url))
-        self.network_manager.get(request)
+        if self._active_reply is not None:
+            self._active_reply.abort()
+            self._active_reply.deleteLater()
+        self._active_reply = self.network_manager.get(request)
+        self._active_reply.finished.connect(
+            lambda reply=self._active_reply: self.on_image_downloaded(reply)
+        )
 
     def on_image_downloaded(self, reply: QNetworkReply):
+        if reply is not self._active_reply:
+            reply.deleteLater()
+            return
+        self._active_reply = None
 
         if reply.error() != QNetworkReply.NetworkError.NoError:
             self.errorOccurred.emit(f"图片加载失败：{reply.errorString()}")
@@ -87,11 +82,8 @@ class VerificationImage(QWidget):
                 self.fallback_to_local_image()
             else:
 
-                self.currentImage = pixmap.scaled(
-                    self._width,
-                    self._height,
-                    Qt.AspectRatioMode.IgnoreAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
+                self.currentImage = cover_pixmap(
+                    pixmap, self._width, self._height, dpr=self._dpr
                 )
 
                 self.pixmapX = randint(50, self._width - 35 - 1)
@@ -104,7 +96,9 @@ class VerificationImage(QWidget):
 
     def fallback_to_local_image(self):
 
-        self.currentImage = procedural_background(self._width, self._height)
+        self.currentImage = procedural_background(
+            self._width, self._height, dpr=self._dpr
+        )
 
         self.pixmapX = randint(50, self._width - 35 - 1)
         self.pixmapY = randint(40, self._height - 35 - 1)
@@ -116,6 +110,7 @@ class VerificationImage(QWidget):
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         path = QPainterPath()
         rect = QRectF(0, 0, self._width, self._height)
@@ -123,7 +118,7 @@ class VerificationImage(QWidget):
         painter.setClipPath(path)
         painter.drawPixmap(QPoint(0, 0), self.currentImage)
 
-        shadowPixmap = self.currentImage.copy(self.pixmapX, self.pixmapY, 35, 35)
+        shadowPixmap = copy_logical(self.currentImage, self.pixmapX, self.pixmapY, 35, 35)
         shadowPainter = QPainter(shadowPixmap)
         shadowPainter.setCompositionMode(
             QPainter.CompositionMode.CompositionMode_SourceAtop
@@ -132,11 +127,11 @@ class VerificationImage(QWidget):
         shadowPainter.end()
         painter.drawPixmap(QPoint(self.pixmapX, self.pixmapY), shadowPixmap)
 
-        movePixmap = self.currentImage.copy(self.pixmapX, self.pixmapY, 35, 35)
+        movePixmap = copy_logical(self.currentImage, self.pixmapX, self.pixmapY, 35, 35)
         movePainter = QPainter(movePixmap)
         movePainter.setPen(QPen(QColor(255, 255, 255), 2))
         movePainter.setBrush(Qt.BrushStyle.NoBrush)
-        movePainter.drawRect(0, 0, 34, 34)
+        movePainter.drawRect(QRectF(1, 1, 33, 33))
         movePainter.end()
         painter.drawPixmap(QPoint(self._moveX, self.pixmapY), movePixmap)
 
