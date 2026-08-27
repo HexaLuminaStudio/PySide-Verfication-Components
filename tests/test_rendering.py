@@ -1,7 +1,11 @@
+from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QColor, QPixmap
 
 from src.components.rendering import copy_logical, cover_pixmap, new_canvas
 from src.iconClickVerification.image import Icon
+from src.dragMatchVerification.image import SHAPE_TYPES, shape_path
+from src.conditionRegionVerification.image import REGION_SHAPES, region_path
+from src.pathTraceVerification.image import distance_to_segment
 from src.rotateSliderVerification import LocalVerificationImage
 from src.tileOrderVerification import LocalVerificationImage as LocalTileOrderImage
 
@@ -49,6 +53,32 @@ def test_all_icon_paths_are_valid_and_hit_testable(qapp):
         icon = Icon(icon_type, 10, 10, 40)
         assert not icon.path().isEmpty()
         assert icon.contains(icon.bounds.center())
+
+
+def test_all_drag_match_shapes_have_valid_paths(qapp):
+    center = QPointF(50, 50)
+    for shape_type in SHAPE_TYPES:
+        path = shape_path(shape_type, center, 40)
+        assert not path.isEmpty()
+        assert path.contains(center)
+
+
+def test_all_condition_region_shapes_have_valid_paths(qapp):
+    bounds = QRectF(10, 10, 60, 44)
+    for shape in REGION_SHAPES:
+        path = region_path(shape, bounds)
+        assert not path.isEmpty()
+        assert path.contains(bounds.center())
+
+
+def test_path_trace_segment_distance_detects_fast_crossing():
+    distance = distance_to_segment(
+        QPointF(100, 50),
+        QPointF(20, 50),
+        QPointF(180, 50),
+    )
+
+    assert distance == 0
 
 
 def test_rotate_image_preserves_high_dpi_source_density(qapp):

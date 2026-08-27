@@ -6,8 +6,11 @@ from PySide6.QtWidgets import QApplication, QGridLayout, QLabel, QPushButton, QV
 from pyside_verification import (
     BasicSliderFlyout,
     CircleSliderFlyout,
+    ConditionRegionFlyout,
+    DragMatchFlyout,
     FigureSliderFlyout,
     IconClickFlyout,
+    PathTraceFlyout,
     RotateSliderFlyout,
     TextClickFlyout,
     TileOrderFlyout,
@@ -21,6 +24,9 @@ class Demo(QWidget):
         ("圆形滑动验证码", CircleSliderFlyout),
         ("图片旋正验证码", RotateSliderFlyout),
         ("图块排序验证码", TileOrderFlyout),
+        ("图形拖拽验证码", DragMatchFlyout),
+        ("路径描摹验证码", PathTraceFlyout),
+        ("条件区域点选", ConditionRegionFlyout),
         ("文字点选验证码", TextClickFlyout),
         ("图标点选验证码", IconClickFlyout),
     )

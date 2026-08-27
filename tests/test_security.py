@@ -1,10 +1,14 @@
+from PySide6.QtCore import Qt
 from PySide6.QtTest import QSignalSpy, QTest
 
 from pyside_verification import (
     AttemptPolicy,
     BasicSliderCard,
     ChallengeLifecycleController,
+    ConditionRegionCard,
+    DragMatchCard,
     IconClickCard,
+    PathTraceCard,
     RotateSliderCard,
     TileOrderCard,
 )
@@ -235,5 +239,113 @@ def test_tile_order_challenge_uses_opaque_ids_in_server_payload(qapp):
         "tile-d",
     ]
     assert payload["behavior"]["moveCount"] == 1
+    assert card.resolveServerVerification(payload["attemptId"], True) is True
+    assert succeeded.count() == 1
+
+
+def test_drag_match_challenge_uses_opaque_ids_in_server_payload(qapp):
+    card = DragMatchCard(
+        shape_types=["circle", "triangle", "star"],
+        shape_ids=["shape-a", "shape-b", "shape-c"],
+        target_ids=["slot-1", "slot-2", "slot-3"],
+        target_order=[1, 2, 0],
+        animation_duration_ms=0,
+        require_server_verification=True,
+        challenge_token="drag-match-token",
+        server_timeout_seconds=60,
+    )
+    requested = QSignalSpy(card.verificationRequested)
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    for shape_index in range(3):
+        card.verifyImage.attemptPlacement(
+            shape_index,
+            card.verifyImage.targetForShape(shape_index),
+            animated=False,
+        )
+
+    assert requested.count() == 1
+    assert succeeded.count() == 0
+    payload = requested.at(0)[0]
+    assert payload["challengeToken"] == "drag-match-token"
+    assert payload["answer"] == [
+        {"shapeId": "shape-a", "targetId": "slot-3"},
+        {"shapeId": "shape-b", "targetId": "slot-1"},
+        {"shapeId": "shape-c", "targetId": "slot-2"},
+    ]
+    assert payload["behavior"]["moveCount"] == 3
+    assert payload["behavior"]["missCount"] == 0
+    assert card.resolveServerVerification(payload["attemptId"], True) is True
+    assert succeeded.count() == 1
+
+
+def test_path_trace_challenge_sends_bounded_trace_and_opaque_ids(qapp):
+    nodes = [(30, 80), (90, 42), (150, 126), (210, 48), (270, 88)]
+    card = PathTraceCard(
+        node_count=5,
+        nodes=nodes,
+        node_ids=["n-a", "n-b", "n-c", "n-d", "n-e"],
+        max_payload_samples=16,
+        require_server_verification=True,
+        challenge_token="path-trace-token",
+        server_timeout_seconds=60,
+    )
+    card.show()
+    card.verifyImage.setFocus()
+    requested = QSignalSpy(card.verificationRequested)
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    for _index in range(4):
+        QTest.keyClick(card.verifyImage, Qt.Key.Key_Right)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+
+    assert requested.count() == 1
+    assert succeeded.count() == 0
+    payload = requested.at(0)[0]
+    assert payload["challengeToken"] == "path-trace-token"
+    assert payload["answer"]["nodeIds"] == ["n-a", "n-b", "n-c", "n-d", "n-e"]
+    assert 1 <= len(payload["answer"]["trace"]) <= 16
+    assert set(payload["answer"]["trace"][0]) == {"x", "y", "t"}
+    assert payload["behavior"]["inputMethod"] == "keyboard"
+    assert payload["behavior"]["nodeHitCount"] == 5
+    assert payload["behavior"]["pathLength"] > 0
+    assert card.resolveServerVerification(payload["attemptId"], True) is True
+    assert succeeded.count() == 1
+
+
+def test_condition_region_challenge_uses_opaque_ids_in_server_payload(qapp):
+    regions = [
+        {"region_id": "area-a", "color": "blue", "shape": "circle"},
+        {"region_id": "area-b", "color": "blue", "shape": "circle"},
+        {"region_id": "area-c", "color": "blue", "shape": "triangle"},
+        {"region_id": "area-d", "color": "green", "shape": "circle"},
+        {"region_id": "area-e", "color": "orange", "shape": "square"},
+        {"region_id": "area-f", "color": "purple", "shape": "diamond"},
+    ]
+    card = ConditionRegionCard(
+        region_count=6,
+        regions=regions,
+        condition_color="blue",
+        condition_shape="circle",
+        require_server_verification=True,
+        challenge_token="condition-region-token",
+        server_timeout_seconds=60,
+    )
+    requested = QSignalSpy(card.verificationRequested)
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    card.verifyImage.toggleRegion(0)
+    card.verifyImage.toggleRegion(1)
+    card.submitButton.click()
+
+    assert requested.count() == 1
+    assert succeeded.count() == 0
+    payload = requested.at(0)[0]
+    assert payload["challengeToken"] == "condition-region-token"
+    assert payload["answer"] == ["area-a", "area-b"]
+    assert payload["behavior"]["toggleCount"] == 2
+    assert payload["behavior"]["selectedCount"] == 2
+    assert payload["behavior"]["inputMethod"] == "pointer"
     assert card.resolveServerVerification(payload["attemptId"], True) is True
     assert succeeded.count() == 1

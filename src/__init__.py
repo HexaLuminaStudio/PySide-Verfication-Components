@@ -4,10 +4,17 @@ from .basicSliderVerification import VerificationCard as BasicSliderCard
 from .basicSliderVerification import VerificationFlyout as BasicSliderFlyout
 from .circleSliderVerification import VerificationCard as CircleSliderCard
 from .circleSliderVerification import VerificationFlyout as CircleSliderFlyout
+from .conditionRegionVerification import RegionSpec
+from .conditionRegionVerification import VerificationCard as ConditionRegionCard
+from .conditionRegionVerification import VerificationFlyout as ConditionRegionFlyout
+from .dragMatchVerification import VerificationCard as DragMatchCard
+from .dragMatchVerification import VerificationFlyout as DragMatchFlyout
 from .figureSliderVerification import VerificationCard as FigureSliderCard
 from .figureSliderVerification import VerificationFlyout as FigureSliderFlyout
 from .iconClickVerification import VerificationCard as IconClickCard
 from .iconClickVerification import VerificationFlyout as IconClickFlyout
+from .pathTraceVerification import VerificationCard as PathTraceCard
+from .pathTraceVerification import VerificationFlyout as PathTraceFlyout
 from .rotateSliderVerification import VerificationCard as RotateSliderCard
 from .rotateSliderVerification import VerificationFlyout as RotateSliderFlyout
 from .textClickVerification import VerificationCard as TextClickCard
@@ -23,15 +30,22 @@ __all__ = [
     "BasicSliderFlyout",
     "CircleSliderCard",
     "CircleSliderFlyout",
+    "ConditionRegionCard",
+    "ConditionRegionFlyout",
+    "DragMatchCard",
+    "DragMatchFlyout",
     "FigureSliderCard",
     "FigureSliderFlyout",
     "IconClickCard",
     "IconClickFlyout",
+    "PathTraceCard",
+    "PathTraceFlyout",
     "RotateSliderCard",
     "RotateSliderFlyout",
     "TextClickCard",
     "TextClickFlyout",
     "TileOrderCard",
     "TileOrderFlyout",
+    "RegionSpec",
     "TrackPolicy",
 ]

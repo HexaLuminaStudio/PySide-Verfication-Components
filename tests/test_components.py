@@ -1,3 +1,5 @@
+import pytest
+
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QSignalSpy, QTest
@@ -6,8 +8,11 @@ from pyside_verification import (
     BasicSliderCard,
     BasicSliderFlyout,
     CircleSliderCard,
+    ConditionRegionCard,
+    DragMatchCard,
     FigureSliderCard,
     IconClickCard,
+    PathTraceCard,
     RotateSliderCard,
     TextClickCard,
     TileOrderCard,
@@ -19,6 +24,9 @@ def test_all_cards_construct_offline(qapp):
         BasicSliderCard(),
         FigureSliderCard(),
         CircleSliderCard(),
+        ConditionRegionCard(),
+        DragMatchCard(),
+        PathTraceCard(),
         RotateSliderCard(),
         TextClickCard(),
         TileOrderCard(),
@@ -173,6 +181,449 @@ def test_tile_order_rejects_invalid_fixed_order(qapp):
         assert "不能已经是正确顺序" in str(error)
     else:
         raise AssertionError("已经完成的初始排列必须被拒绝")
+
+
+def test_drag_match_challenge_completes_after_all_shapes_are_placed(qapp):
+    card = DragMatchCard(
+        shape_types=["circle", "triangle", "star"],
+        target_order=[1, 2, 0],
+        animation_duration_ms=0,
+    )
+    spy = QSignalSpy(card.verificationSuccess)
+
+    for shape_index in range(3):
+        assert card.verifyImage.attemptPlacement(
+            shape_index,
+            card.verifyImage.targetForShape(shape_index),
+            animated=False,
+        )
+
+    assert spy.count() == 1
+    assert len(card.verifyImage.answer()) == 3
+
+
+def test_drag_match_wrong_target_returns_shape_to_source(qapp):
+    card = DragMatchCard(
+        shape_types=["circle", "triangle", "star"],
+        target_order=[1, 2, 0],
+        animation_duration_ms=0,
+    )
+    rejected = QSignalSpy(card.verifyImage.placementRejected)
+    shape = card.verifyImage.shapes[0]
+
+    assert not card.verifyImage.attemptPlacement(0, 0, animated=False)
+
+    assert rejected.count() == 1
+    assert shape.placed_slot is None
+    assert shape.current_center == shape.source_center
+    assert card.verifyImage.missCount == 1
+
+
+def test_drag_match_correct_target_uses_snap_animation(qapp):
+    card = DragMatchCard(
+        shape_types=["circle", "triangle", "star"],
+        target_order=[1, 2, 0],
+        animation_duration_ms=120,
+    )
+    shape = card.verifyImage.shapes[0]
+
+    assert card.verifyImage.attemptPlacement(
+        0,
+        card.verifyImage.targetForShape(0),
+    )
+    assert shape.placed_slot is None
+    QTest.qWait(170)
+
+    assert shape.placed_slot == 2
+    assert shape.current_center == card.verifyImage.targetCenters[2]
+
+
+def test_drag_match_refresh_interrupts_pending_snap(qapp):
+    card = DragMatchCard(
+        shape_types=["circle", "triangle", "star"],
+        target_order=[1, 2, 0],
+        animation_duration_ms=120,
+    )
+
+    assert card.verifyImage.attemptPlacement(0, 2)
+    card.verifyImage.refreshImage()
+    QTest.qWait(170)
+
+    assert all(shape.placed_slot is None for shape in card.verifyImage.shapes)
+    assert card.verifyImage.moveCount == 0
+
+
+def test_drag_match_challenge_supports_keyboard_placement(qapp):
+    card = DragMatchCard(
+        shape_types=["circle", "triangle", "star"],
+        target_order=[1, 2, 0],
+        animation_duration_ms=0,
+    )
+    card.show()
+    card.verifyImage.setFocus()
+    spy = QSignalSpy(card.verificationSuccess)
+
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Right)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Right)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Right)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+
+    assert spy.count() == 1
+    assert card.verifyImage.inputMethod == "keyboard"
+
+
+def test_drag_match_challenge_supports_pointer_placement(qapp):
+    card = DragMatchCard(
+        shape_count=2,
+        shape_types=["circle", "triangle"],
+        target_order=[1, 0],
+        animation_duration_ms=0,
+    )
+    card.show()
+    spy = QSignalSpy(card.verificationSuccess)
+
+    for shape_index in range(2):
+        source = card.verifyImage.shapes[shape_index].source_center.toPoint()
+        target = card.verifyImage.targetCenters[
+            card.verifyImage.targetForShape(shape_index)
+        ].toPoint()
+        QTest.mousePress(
+            card.verifyImage,
+            Qt.MouseButton.LeftButton,
+            pos=source,
+        )
+        QTest.mouseMove(card.verifyImage, target)
+        QTest.mouseRelease(
+            card.verifyImage,
+            Qt.MouseButton.LeftButton,
+            pos=target,
+        )
+
+    assert spy.count() == 1
+    assert card.verifyImage.inputMethod == "pointer"
+
+
+TRACE_NODES = [(30, 80), (90, 42), (150, 126), (210, 48), (270, 88)]
+
+
+def test_path_trace_challenge_completes_with_continuous_pointer_path(qapp):
+    card = PathTraceCard(node_count=5, nodes=TRACE_NODES)
+    card.show()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*TRACE_NODES[0]),
+    )
+    for point in TRACE_NODES[1:]:
+        QTest.mouseMove(card.verifyImage, QPoint(*point))
+    QTest.mouseRelease(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*TRACE_NODES[-1]),
+    )
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.reachedCount == 5
+    assert card.verifyImage.inputMethod == "pointer"
+
+
+def test_path_trace_fast_segment_cannot_skip_intermediate_nodes(qapp):
+    straight_nodes = [(30, 84), (90, 84), (150, 84), (210, 84), (270, 84)]
+    card = PathTraceCard(node_count=5, nodes=straight_nodes)
+    card.show()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*straight_nodes[0]),
+    )
+    QTest.mouseMove(card.verifyImage, QPoint(*straight_nodes[-1]))
+    QTest.mouseRelease(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*straight_nodes[-1]),
+    )
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.reachedCount == 5
+
+
+def test_path_trace_rejects_area_filling_even_if_nodes_are_crossed(qapp):
+    card = PathTraceCard(node_count=5, nodes=TRACE_NODES)
+    card.show()
+    rejected = QSignalSpy(card.verifyImage.pathRejected)
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*TRACE_NODES[0]),
+    )
+    QTest.mouseMove(card.verifyImage, QPoint(30, 150))
+    for point in TRACE_NODES[1:]:
+        QTest.mouseMove(card.verifyImage, QPoint(*point))
+    QTest.mouseRelease(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*TRACE_NODES[-1]),
+    )
+
+    assert rejected.count() == 1
+    assert "偏离" in rejected.at(0)[0]
+    assert succeeded.count() == 0
+    assert card.verifyImage.reachedCount == 0
+
+
+def test_path_trace_rejects_shortcut_across_a_zigzag_route(qapp):
+    card = PathTraceCard(node_count=5, nodes=TRACE_NODES)
+    card.show()
+    rejected = QSignalSpy(card.verifyImage.pathRejected)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*TRACE_NODES[0]),
+    )
+    QTest.mouseMove(card.verifyImage, QPoint(*TRACE_NODES[-1]))
+
+    assert rejected.count() == 1
+    assert card.verifyImage.trace == []
+
+
+def test_path_trace_rejects_large_backtracking_on_the_route(qapp):
+    straight_nodes = [(30, 84), (90, 84), (150, 84), (210, 84), (270, 84)]
+    card = PathTraceCard(node_count=5, nodes=straight_nodes)
+    card.show()
+    rejected = QSignalSpy(card.verifyImage.pathRejected)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*straight_nodes[0]),
+    )
+    QTest.mouseMove(card.verifyImage, QPoint(*straight_nodes[2]))
+    QTest.mouseMove(card.verifyImage, QPoint(*straight_nodes[0]))
+
+    assert rejected.count() == 1
+    assert card.verifyImage.reachedCount == 0
+
+
+def test_path_trace_allows_small_natural_pointer_deviation(qapp):
+    straight_nodes = [(30, 84), (90, 84), (150, 84), (210, 84), (270, 84)]
+    card = PathTraceCard(node_count=5, nodes=straight_nodes, path_tolerance=14)
+    card.show()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*straight_nodes[0]),
+    )
+    for x, y in straight_nodes[1:]:
+        QTest.mouseMove(card.verifyImage, QPoint(x, y + 8))
+    QTest.mouseRelease(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*straight_nodes[-1]),
+    )
+
+    assert succeeded.count() == 1
+
+
+def test_path_trace_rejects_drawing_after_reaching_the_end(qapp):
+    straight_nodes = [(30, 84), (90, 84), (150, 84), (210, 84), (270, 84)]
+    card = PathTraceCard(node_count=5, nodes=straight_nodes)
+    card.show()
+    rejected = QSignalSpy(card.verifyImage.pathRejected)
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*straight_nodes[0]),
+    )
+    QTest.mouseMove(card.verifyImage, QPoint(*straight_nodes[-1]))
+    QTest.mouseMove(card.verifyImage, QPoint(270, 140))
+    QTest.mouseRelease(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(270, 140),
+    )
+
+    assert rejected.count() == 1
+    assert succeeded.count() == 0
+
+
+def test_path_trace_rejects_wrong_start_without_replacing_challenge(qapp):
+    card = PathTraceCard(node_count=5, nodes=TRACE_NODES)
+    card.show()
+    rejected = QSignalSpy(card.verifyImage.pathRejected)
+    original_nodes = [point.toTuple() for point in card.verifyImage.nodes]
+
+    QTest.mouseClick(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(150, 80),
+    )
+
+    assert rejected.count() == 1
+    assert [point.toTuple() for point in card.verifyImage.nodes] == original_nodes
+    assert card.verifyImage.reachedCount == 0
+    assert card.verifyImage.missCount == 1
+
+
+def test_path_trace_incomplete_release_resets_current_trace(qapp):
+    card = PathTraceCard(node_count=5, nodes=TRACE_NODES)
+    card.show()
+    rejected = QSignalSpy(card.verifyImage.pathRejected)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*TRACE_NODES[0]),
+    )
+    QTest.mouseMove(card.verifyImage, QPoint(*TRACE_NODES[1]))
+    QTest.mouseRelease(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(*TRACE_NODES[1]),
+    )
+
+    assert rejected.count() == 1
+    assert card.verifyImage.trace == []
+    assert card.verifyImage.reachedCount == 0
+    assert card.verifyImage.missCount == 1
+
+
+def test_path_trace_challenge_supports_keyboard_completion(qapp):
+    card = PathTraceCard(node_count=5, nodes=TRACE_NODES)
+    card.show()
+    card.verifyImage.setFocus()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    for _index in range(4):
+        QTest.keyClick(card.verifyImage, Qt.Key.Key_Right)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.inputMethod == "keyboard"
+
+
+def test_path_trace_rejects_invalid_fixed_nodes(qapp):
+    with pytest.raises(ValueError, match="数量"):
+        PathTraceCard(node_count=5, nodes=TRACE_NODES[:4])
+    with pytest.raises(ValueError, match="距离过近"):
+        PathTraceCard(
+            node_count=4,
+            nodes=[(30, 40), (45, 40), (150, 80), (260, 100)],
+        )
+    with pytest.raises(ValueError, match="有限数值"):
+        PathTraceCard(path_tolerance=float("nan"))
+
+
+CONDITION_REGIONS = [
+    {"region_id": "area-a", "color": "blue", "shape": "circle"},
+    {"region_id": "area-b", "color": "blue", "shape": "circle"},
+    {"region_id": "area-c", "color": "blue", "shape": "triangle"},
+    {"region_id": "area-d", "color": "green", "shape": "circle"},
+    {"region_id": "area-e", "color": "orange", "shape": "square"},
+    {"region_id": "area-f", "color": "purple", "shape": "diamond"},
+]
+
+
+def make_condition_region_card(**kwargs):
+    return ConditionRegionCard(
+        region_count=6,
+        regions=CONDITION_REGIONS,
+        condition_color="blue",
+        condition_shape="circle",
+        **kwargs,
+    )
+
+
+def test_condition_region_mouse_selection_requires_explicit_confirmation(qapp):
+    card = make_condition_region_card()
+    card.show()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    for index in (0, 1):
+        QTest.mouseClick(
+            card.verifyImage,
+            Qt.MouseButton.LeftButton,
+            pos=card.verifyImage.regionBounds[index].center().toPoint(),
+        )
+
+    assert succeeded.count() == 0
+    card.submitButton.click()
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.answer() == ["area-a", "area-b"]
+
+
+def test_condition_region_selection_can_be_toggled_before_submit(qapp):
+    card = make_condition_region_card()
+
+    assert card.verifyImage.toggleRegion(0)
+    assert card.verifyImage.toggleRegion(2)
+    assert card.verifyImage.toggleRegion(2)
+    assert card.verifyImage.toggleRegion(1)
+
+    assert card.verifyImage.answer() == ["area-a", "area-b"]
+    assert card.verifyImage.deselectionCount == 1
+
+
+def test_condition_region_wrong_selection_is_rejected(qapp):
+    card = make_condition_region_card()
+    failed = QSignalSpy(card.verificationFailed)
+
+    card.verifyImage.toggleRegion(0)
+    card.verifyImage.toggleRegion(2)
+    card.submitButton.click()
+
+    assert failed.count() == 1
+    assert card.verifyImage.selectedIds == []
+
+
+def test_condition_region_supports_keyboard_selection_and_submit(qapp):
+    card = make_condition_region_card()
+    card.show()
+    card.verifyImage.setFocus()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Right)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Return)
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.inputMethod == "keyboard"
+
+
+def test_condition_region_validates_server_supplied_regions(qapp):
+    with pytest.raises(ValueError, match="数量"):
+        ConditionRegionCard(
+            region_count=6,
+            regions=CONDITION_REGIONS[:5],
+            condition_color="blue",
+        )
+    with pytest.raises(ValueError, match="至少一个筛选条件"):
+        ConditionRegionCard(region_count=6, regions=CONDITION_REGIONS)
+    with pytest.raises(ValueError, match="部分但不是全部"):
+        ConditionRegionCard(
+            region_count=6,
+            regions=CONDITION_REGIONS,
+            condition_color="blue",
+            condition_shape="hexagon",
+        )
 
 
 def test_flyout_can_be_created_without_showing(qapp):

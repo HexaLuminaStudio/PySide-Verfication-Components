@@ -7,10 +7,16 @@ from src import (
     ChallengeLifecycleController,
     CircleSliderCard,
     CircleSliderFlyout,
+    ConditionRegionCard,
+    ConditionRegionFlyout,
+    DragMatchCard,
+    DragMatchFlyout,
     FigureSliderCard,
     FigureSliderFlyout,
     IconClickCard,
     IconClickFlyout,
+    PathTraceCard,
+    PathTraceFlyout,
     RotateSliderCard,
     RotateSliderFlyout,
     TextClickCard,
@@ -18,6 +24,7 @@ from src import (
     TileOrderCard,
     TileOrderFlyout,
     TrackPolicy,
+    RegionSpec,
 )
 
 __all__ = [
@@ -27,10 +34,16 @@ __all__ = [
     "ChallengeLifecycleController",
     "CircleSliderCard",
     "CircleSliderFlyout",
+    "ConditionRegionCard",
+    "ConditionRegionFlyout",
+    "DragMatchCard",
+    "DragMatchFlyout",
     "FigureSliderCard",
     "FigureSliderFlyout",
     "IconClickCard",
     "IconClickFlyout",
+    "PathTraceCard",
+    "PathTraceFlyout",
     "RotateSliderCard",
     "RotateSliderFlyout",
     "TextClickCard",
@@ -38,6 +51,7 @@ __all__ = [
     "TileOrderCard",
     "TileOrderFlyout",
     "TrackPolicy",
+    "RegionSpec",
 ]
 
 __version__ = "1.0.0"

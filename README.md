@@ -4,7 +4,7 @@
 
 # PySide Verification Components
 
-面向 PySide6 桌面应用的可移植验证码组件集。提供四种滑块、两种点选与一种图块排序验证，默认离线可用，也支持由项目传入远程图片地址。
+面向 PySide6 桌面应用的可移植验证码组件集。提供四种滑块、两种点选、图块排序、图形拖拽归位与路径描摹验证，默认离线可用；依赖图片的类型也支持由项目传入远程图片地址。
 
 > 这些组件适合阻止误触、增加自动操作成本，但客户端逻辑可以被绕过，不能替代服务端鉴权、限流和风控。
 
@@ -15,6 +15,9 @@
 - `CircleSliderCard` / `CircleSliderFlyout`：圆周旋转滑块
 - `RotateSliderCard` / `RotateSliderFlyout`：图片旋正滑块
 - `TileOrderCard` / `TileOrderFlyout`：拖拽图块恢复图片顺序
+- `DragMatchCard` / `DragMatchFlyout`：将彩色图形拖入匹配轮廓
+- `PathTraceCard` / `PathTraceFlyout`：从起点连续描摹并依次经过路径节点
+- `ConditionRegionCard` / `ConditionRegionFlyout`：选择所有符合颜色与形状条件的区域
 - `TextClickCard` / `TextClickFlyout`：文字顺序点选
 - `IconClickCard` / `IconClickFlyout`：颜色与图形顺序点选
 
@@ -115,6 +118,87 @@ captcha = TileOrderCard(
 ```
 
 将 `animation_duration_ms` 设为 `0` 可以关闭图块换位动画。
+
+图形拖拽归位默认提供 3 个不同图形，支持配置 2～4 个。错误归位会平滑返回，全部匹配后自动验证：
+
+```python
+from pyside_verification import DragMatchCard
+
+captcha = DragMatchCard(
+    shape_count=3,
+    animation_duration_ms=180,
+)
+```
+
+路径描摹验证码默认生成 5 个节点。鼠标必须从起点按下并保持拖动，依次经过所有节点后松开；键盘用户可以按空格开始、使用方向键推进或回退，并在终点按空格提交：
+
+```python
+from pyside_verification import PathTraceCard
+
+captcha = PathTraceCard(
+    node_count=5,
+    hit_radius=18,
+    path_tolerance=14,
+    backtrack_tolerance=12,
+)
+```
+
+判定不仅检查节点顺序，还会验证整段轨迹是否始终位于虚线路径的容差走廊内，并拒绝跨段、大幅回退以及到达终点后继续乱画。`path_tolerance` 控制允许偏离路径的像素距离，`backtrack_tolerance` 控制允许自然手抖产生的小幅回退。
+
+条件区域点选默认生成 9 个颜色与形状不同的区域。用户可以反复选择或取消，确认后才会提交；键盘用户使用方向键移动、空格切换选择、回车确认、Esc 清空：
+
+```python
+from pyside_verification import ConditionRegionCard
+
+captcha = ConditionRegionCard(region_count=9)
+```
+
+服务端挑战可以指定区域、不透明 ID 和筛选条件：
+
+```python
+from pyside_verification import ConditionRegionCard, RegionSpec
+
+captcha = ConditionRegionCard(
+    region_count=6,
+    regions=[
+        RegionSpec("area-a", "blue", "circle"),
+        RegionSpec("area-b", "blue", "circle"),
+        RegionSpec("area-c", "blue", "triangle"),
+        RegionSpec("area-d", "green", "circle"),
+        RegionSpec("area-e", "orange", "square"),
+        RegionSpec("area-f", "purple", "diamond"),
+    ],
+    condition_color="blue",
+    condition_shape="circle",
+    require_server_verification=True,
+    challenge_token="opaque-server-token",
+)
+```
+
+服务端生成挑战时，可以传入固定坐标和不透明节点 ID。提交载荷包含有上限的压缩轨迹、相对时间、路径长度、命中数与输入方式；服务端仍应独立核对节点顺序和轨迹合理性：
+
+```python
+captcha = PathTraceCard(
+    node_count=5,
+    nodes=[(28, 52), (89, 118), (150, 42), (211, 124), (272, 64)],
+    node_ids=["n-a", "n-b", "n-c", "n-d", "n-e"],
+    require_server_verification=True,
+    challenge_token="opaque-server-token",
+)
+```
+
+服务端挑战可以传入固定图形类型、不透明图形 ID、目标 ID 和目标排列：
+
+```python
+captcha = DragMatchCard(
+    shape_types=["circle", "triangle", "star"],
+    shape_ids=["shape-a", "shape-b", "shape-c"],
+    target_ids=["slot-1", "slot-2", "slot-3"],
+    target_order=[1, 2, 0],
+    require_server_verification=True,
+    challenge_token="opaque-server-token",
+)
+```
 
 当挑战由服务端生成时，可以同时传入服务端绑定的初始排列和不透明图块 ID：
 
