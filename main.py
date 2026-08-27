@@ -8,7 +8,9 @@ from pyside_verification import (
     CircleSliderFlyout,
     FigureSliderFlyout,
     IconClickFlyout,
+    RotateSliderFlyout,
     TextClickFlyout,
+    TileOrderFlyout,
 )
 
 
@@ -17,6 +19,8 @@ class Demo(QWidget):
         ("普通滑动验证码", BasicSliderFlyout),
         ("形状滑动验证码", FigureSliderFlyout),
         ("圆形滑动验证码", CircleSliderFlyout),
+        ("图片旋正验证码", RotateSliderFlyout),
+        ("图块排序验证码", TileOrderFlyout),
         ("文字点选验证码", TextClickFlyout),
         ("图标点选验证码", IconClickFlyout),
     )

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import statistics
 import time
-from math import pi, sin
+from collections import Counter
 from dataclasses import dataclass
+from math import hypot, isfinite, pi, sin
 from typing import Sequence
 
 from PySide6.QtCore import (
@@ -30,46 +31,223 @@ from PySide6.QtWidgets import QWidget
 
 @dataclass(frozen=True, slots=True)
 class TrackPolicy:
-    """Tunable, deliberately conservative interaction checks."""
+    """Tunable client-side risk policy.
 
-    min_samples: int = 4
-    min_duration: float = 0.12
+    These signals raise the cost of naive automation but are not a security
+    boundary. Authoritative acceptance belongs on a trusted server.
+    """
+
+    min_samples: int = 3
+    min_duration: float = 0.01
     max_duration: float = 15.0
     min_distance: float = 18.0
     reject_perfect_linear_tracks: bool = True
+    risk_threshold: int = 65
+    fast_duration: float = 0.20
+    max_pointer_speed: float = 3500.0
+    max_samples: int = 512
+
+
+def _coefficient_of_variation(values: Sequence[float]) -> float:
+    if len(values) < 2:
+        return 0.0
+    mean = abs(statistics.fmean(values))
+    return statistics.pstdev(values) / mean if mean > 1e-9 else 0.0
+
+
+def _normalise_track(
+    track: Sequence[tuple[float, ...]],
+) -> list[tuple[float, float, float]]:
+    points: list[tuple[float, float, float]] = []
+    for point in track:
+        if len(point) == 2:
+            x, timestamp = point
+            points.append((float(x), 0.0, float(timestamp)))
+        elif len(point) >= 3:
+            x, y, timestamp = point[:3]
+            points.append((float(x), float(y), float(timestamp)))
+    return points
+
+
+def _coalesce_equal_timestamps(
+    points: Sequence[tuple[float, float, float]],
+) -> tuple[list[tuple[float, float, float]], int] | None:
+    """Merge event-loop samples sharing a timestamp and reject time reversal."""
+
+    if not points:
+        return [], 0
+    coalesced = [points[0]]
+    duplicate_count = 0
+    for point in points[1:]:
+        previous_time = coalesced[-1][2]
+        if point[2] < previous_time:
+            return None
+        if point[2] == previous_time:
+            # Qt can deliver several positions inside one clock tick. Keeping
+            # the latest position preserves the actual travelled endpoint and
+            # avoids a zero interval during speed calculation.
+            coalesced[-1] = point
+            duplicate_count += 1
+        else:
+            coalesced.append(point)
+    return coalesced, duplicate_count
 
 
 def analyze_track(
-    track: Sequence[tuple[float, float]], policy: TrackPolicy | None = None
+    track: Sequence[tuple[float, ...]],
+    policy: TrackPolicy | None = None,
+    *,
+    input_method: str = "pointer",
 ) -> dict[str, object]:
-    """Return one stable result for a pointer track."""
+    """Return an explainable risk decision for a pointer or keyboard track."""
 
     policy = policy or TrackPolicy()
-    if len(track) < policy.min_samples:
-        return {"result": False, "msg": ["滑动轨迹过短"]}
+    points = _normalise_track(track[: policy.max_samples])
+    if any(not all(isfinite(value) for value in point) for point in points):
+        return {
+            "result": False,
+            "msg": ["轨迹数据异常"],
+            "riskScore": 100,
+            "inputMethod": input_method,
+            "metrics": {"sampleCount": len(points)},
+        }
 
-    xs = [float(point[0]) for point in track]
-    ts = [float(point[1]) for point in track]
+    coalesced = _coalesce_equal_timestamps(points)
+    if coalesced is None:
+        return {
+            "result": False,
+            "msg": ["轨迹时间戳异常"],
+            "riskScore": 100,
+            "inputMethod": input_method,
+            "metrics": {"sampleCount": len(points)},
+        }
+    points, duplicate_timestamp_count = coalesced
+    if len(points) < policy.min_samples:
+        return {
+            "result": False,
+            "msg": ["滑动轨迹过短"],
+            "riskScore": 100,
+            "inputMethod": input_method,
+            "metrics": {
+                "sampleCount": len(points),
+                "duplicateTimestampCount": duplicate_timestamp_count,
+            },
+        }
+
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    ts = [point[2] for point in points]
+    intervals = [ts[index] - ts[index - 1] for index in range(1, len(ts))]
     duration = ts[-1] - ts[0]
     distance = abs(xs[-1] - xs[0])
     if duration < policy.min_duration or duration > policy.max_duration:
-        return {"result": False, "msg": ["滑动时间异常"]}
+        return {
+            "result": False,
+            "msg": ["滑动时间异常"],
+            "riskScore": 100,
+            "inputMethod": input_method,
+            "metrics": {"sampleCount": len(points), "duration": round(duration, 4)},
+        }
     if distance < policy.min_distance:
-        return {"result": False, "msg": ["滑动距离过短"]}
+        return {
+            "result": False,
+            "msg": ["滑动距离过短"],
+            "riskScore": 100,
+            "inputMethod": input_method,
+            "metrics": {"sampleCount": len(points), "distance": round(distance, 3)},
+        }
 
-    if policy.reject_perfect_linear_tracks and len(track) >= 6:
-        intervals = [ts[i] - ts[i - 1] for i in range(1, len(ts))]
-        deltas = [xs[i] - xs[i - 1] for i in range(1, len(xs))]
-        mean_interval = statistics.fmean(intervals)
-        mean_delta = statistics.fmean(deltas)
-        interval_spread = max(intervals) - min(intervals)
-        delta_spread = max(deltas) - min(deltas)
-        regular_timing = mean_interval > 0 and interval_spread <= max(0.0005, mean_interval * 0.01)
-        regular_motion = abs(mean_delta) > 0 and delta_spread <= max(0.05, abs(mean_delta) * 0.01)
-        if regular_timing and regular_motion:
-            return {"result": False, "msg": ["滑动轨迹过于规律"]}
+    deltas_x = [xs[index] - xs[index - 1] for index in range(1, len(xs))]
+    deltas_y = [ys[index] - ys[index - 1] for index in range(1, len(ys))]
+    segment_lengths = [hypot(dx, dy) for dx, dy in zip(deltas_x, deltas_y)]
+    speeds = [length / interval for length, interval in zip(segment_lengths, intervals)]
+    path_length = sum(segment_lengths)
+    straightness = distance / path_length if path_length > 0 else 1.0
+    backward_distance = sum(abs(delta) for delta in deltas_x if delta < 0)
+    backward_ratio = backward_distance / max(distance, 1.0)
+    interval_cv = _coefficient_of_variation(intervals)
+    delta_cv = _coefficient_of_variation([abs(value) for value in deltas_x])
+    speed_cv = _coefficient_of_variation(speeds)
+    median_speed = statistics.median(speeds)
+    high_speed_ratio = sum(
+        speed > policy.max_pointer_speed for speed in speeds
+    ) / len(speeds)
+    dominant_delta_ratio = Counter(round(value, 2) for value in deltas_x).most_common(1)[0][1] / len(deltas_x)
+    dominant_interval_ratio = Counter(round(value, 4) for value in intervals).most_common(1)[0][1] / len(intervals)
+    residuals = []
+    for x, timestamp in zip(xs, ts):
+        progress = (timestamp - ts[0]) / duration
+        expected_x = xs[0] + (xs[-1] - xs[0]) * progress
+        residuals.append(x - expected_x)
+    linear_residual = (statistics.fmean(value * value for value in residuals)) ** 0.5
 
-    return {"result": True, "msg": []}
+    metrics = {
+        "sampleCount": len(points),
+        "duplicateTimestampCount": duplicate_timestamp_count,
+        "duration": round(duration, 4),
+        "distance": round(distance, 3),
+        "pathLength": round(path_length, 3),
+        "straightness": round(straightness, 4),
+        "verticalSpan": round(max(ys) - min(ys), 3),
+        "backwardRatio": round(backward_ratio, 4),
+        "intervalCv": round(interval_cv, 4),
+        "deltaCv": round(delta_cv, 4),
+        "speedCv": round(speed_cv, 4),
+        "maxSpeed": round(max(speeds), 2),
+        "medianSpeed": round(median_speed, 2),
+        "highSpeedRatio": round(high_speed_ratio, 4),
+        "linearResidual": round(linear_residual, 4),
+        "dominantDeltaRatio": round(dominant_delta_ratio, 4),
+        "dominantIntervalRatio": round(dominant_interval_ratio, 4),
+    }
+
+    risk_score = 0
+    signals: list[str] = []
+    if input_method == "pointer":
+        if duration < policy.fast_duration:
+            risk_score += 25
+            signals.append("完成速度过快")
+        if median_speed > policy.max_pointer_speed or high_speed_ratio >= 0.5:
+            risk_score += 40
+            signals.append("持续速度异常")
+        if dominant_delta_ratio >= 0.8:
+            risk_score += 22
+            signals.append("重复步长比例过高")
+        if dominant_interval_ratio >= 0.8:
+            risk_score += 18
+            signals.append("采样间隔过于一致")
+        if speed_cv < 0.04:
+            risk_score += 20
+            signals.append("速度变化过低")
+        if linear_residual < 0.35:
+            risk_score += 18
+            signals.append("轨迹与理想直线高度重合")
+        if straightness > 0.9995:
+            risk_score += 8
+            signals.append("路径缺少自然偏移")
+        if max(ys) - min(ys) < 0.5:
+            risk_score += 5
+        if backward_ratio > 0.45:
+            risk_score += 15
+            signals.append("回退比例异常")
+        if (
+            policy.reject_perfect_linear_tracks
+            and interval_cv < 0.015
+            and delta_cv < 0.015
+        ):
+            risk_score += 45
+            signals.append("滑动轨迹过于规律")
+
+    risk_score = min(100, risk_score)
+    accepted = risk_score < policy.risk_threshold
+    return {
+        "result": accepted,
+        "msg": [] if accepted else signals or ["人机风险评分过高"],
+        "riskScore": risk_score,
+        "inputMethod": input_method,
+        "metrics": metrics,
+        "signals": signals,
+    }
 
 
 class VerificationSlider(QWidget):
@@ -108,7 +286,8 @@ class VerificationSlider(QWidget):
         self._hover_progress = 0.0
         self._feedback_progress = 0.0
         self._shake_offset = 0.0
-        self._track: list[tuple[float, float]] = []
+        self._track: list[tuple[float, float, float]] = []
+        self._input_method = "pointer"
         self._policy = policy or TrackPolicy()
 
         self._reset_animation = QPropertyAnimation(self, b"value")
@@ -203,6 +382,21 @@ class VerificationSlider(QWidget):
             self.setEnabled(True)
         self.update()
 
+    def setPending(self, pending: bool = True) -> None:
+        """Lock interaction while a trusted service validates the attempt."""
+
+        if pending:
+            self._error_animation.stop()
+            self._success_animation.stop()
+            self._state = "pending"
+            self._pressed = False
+            self._hovered = False
+            self.setEnabled(False)
+        elif self._state == "pending":
+            self._state = "normal"
+            self.setEnabled(True)
+        self.update()
+
     def reset(self) -> None:
         self._error_animation.stop()
         self._success_animation.stop()
@@ -257,7 +451,9 @@ class VerificationSlider(QWidget):
         self._hover_animation.start()
 
     def _submit(self) -> None:
-        result = analyze_track(self._track, self._policy)
+        result = analyze_track(
+            self._track, self._policy, input_method=self._input_method
+        )
         result.update({"value": round(self._value * 300 / self.maximum), "endTime": time.monotonic()})
         self.resultSignal.emit(result)
         self.sliderReleased.emit()
@@ -271,7 +467,10 @@ class VerificationSlider(QWidget):
                 self._state = "normal"
                 self._hover_animation.stop()
                 self._hover_progress = 1.0
-                self._track = [(event.position().x(), time.monotonic())]
+                self._input_method = "pointer"
+                self._track = [
+                    (event.position().x(), event.position().y(), time.monotonic())
+                ]
                 self.sliderPressed.emit()
                 self.update()
         super().mousePressEvent(event)
@@ -279,7 +478,9 @@ class VerificationSlider(QWidget):
     def mouseMoveEvent(self, event) -> None:
         if self._pressed:
             self.setValue(round(event.position().x() - 17))
-            self._track.append((event.position().x(), time.monotonic()))
+            self._track.append(
+                (event.position().x(), event.position().y(), time.monotonic())
+            )
         else:
             hovered = QRect(1 + self._value, 1, 32, 32).adjusted(-4, -4, 4, 4).contains(
                 event.position().toPoint()
@@ -294,7 +495,9 @@ class VerificationSlider(QWidget):
 
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._pressed:
-            self._track.append((event.position().x(), time.monotonic()))
+            self._track.append(
+                (event.position().x(), event.position().y(), time.monotonic())
+            )
             self._pressed = False
             self._submit()
             if self.isEnabled():
@@ -305,13 +508,13 @@ class VerificationSlider(QWidget):
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             direction = -1 if event.key() == Qt.Key.Key_Left else 1
-            now = time.monotonic()
             if not self._track:
-                self._track = [(float(self._value), now)]
+                self._input_method = "keyboard"
+                self._track = [(float(self._value), 0.0, time.monotonic())]
                 self.sliderPressed.emit()
             step = 1 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 8
             self.setValue(self._value + direction * step)
-            self._track.append((float(self._value), now))
+            self._track.append((float(self._value), 0.0, time.monotonic()))
             event.accept()
             return
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space) and self._track:
@@ -365,6 +568,11 @@ class VerificationSlider(QWidget):
         elif self._state == "error":
             painter.drawLine(center.x() - 4, center.y() - 4, center.x() + 4, center.y() + 4)
             painter.drawLine(center.x() + 4, center.y() - 4, center.x() - 4, center.y() + 4)
+        elif self._state == "pending":
+            painter.setBrush(icon_color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            for offset in (-5, 0, 5):
+                painter.drawEllipse(QPointF(center.x() + offset, center.y()), 1.4, 1.4)
         else:
             painter.drawLine(center.x() - 5, center.y(), center.x() + 5, center.y())
             painter.drawLine(center.x() + 2, center.y() - 3, center.x() + 5, center.y())

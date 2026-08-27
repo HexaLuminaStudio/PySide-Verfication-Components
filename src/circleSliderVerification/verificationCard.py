@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QWidget
 
 from ..components.cards import SliderVerificationCard, VerificationFlyoutBase
+from ..components.security import AttemptPolicy
 from ..components.slider import TrackPolicy
 from .url_image import VerificationImage
 
@@ -12,6 +13,11 @@ class VerificationCard(SliderVerificationCard):
         *,
         image_url: str | None = None,
         track_policy: TrackPolicy | None = None,
+        require_server_verification: bool = False,
+        challenge_token: str | None = None,
+        challenge_ttl_seconds: float | None = None,
+        attempt_policy: AttemptPolicy | None = None,
+        server_timeout_seconds: float = 10.0,
     ) -> None:
         super().__init__(
             VerificationImage,
@@ -19,6 +25,11 @@ class VerificationCard(SliderVerificationCard):
             image_url=image_url,
             tolerance=0,
             track_policy=track_policy,
+            require_server_verification=require_server_verification,
+            challenge_token=challenge_token,
+            challenge_ttl_seconds=challenge_ttl_seconds,
+            attempt_policy=attempt_policy,
+            server_timeout_seconds=server_timeout_seconds,
         )
 
 

@@ -1,13 +1,32 @@
 from PySide6.QtWidgets import QWidget
 
 from ..components.cards import ClickVerificationCard, VerificationFlyoutBase
+from ..components.security import AttemptPolicy
 from .image import VerificationImage
 
 
 class VerificationCard(ClickVerificationCard):
-    def __init__(self, parent: QWidget | None = None, *, image_url: str | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        image_url: str | None = None,
+        require_server_verification: bool = False,
+        challenge_token: str | None = None,
+        challenge_ttl_seconds: float | None = None,
+        attempt_policy: AttemptPolicy | None = None,
+        server_timeout_seconds: float = 10.0,
+    ) -> None:
         del image_url
-        super().__init__(VerificationImage, parent=parent)
+        super().__init__(
+            VerificationImage,
+            parent=parent,
+            require_server_verification=require_server_verification,
+            challenge_token=challenge_token,
+            challenge_ttl_seconds=challenge_ttl_seconds,
+            attempt_policy=attempt_policy,
+            server_timeout_seconds=server_timeout_seconds,
+        )
 
 
 class VerificationFlyout(VerificationFlyoutBase):

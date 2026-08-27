@@ -1,4 +1,4 @@
-from PySide6.QtCore import QAbstractAnimation
+from PySide6.QtCore import QAbstractAnimation, QPoint, Qt
 from PySide6.QtTest import QSignalSpy, QTest
 
 from pyside_verification import BasicSliderCard
@@ -63,3 +63,47 @@ def test_success_feedback_locks_until_explicit_reset(qapp):
     assert slider._state == "normal"
     assert slider.isEnabled()
     assert slider.getFeedbackProgress() == 0.0
+
+
+def test_real_mouse_event_sequence_has_valid_timestamps(qapp):
+    slider = VerificationSlider()
+    slider.show()
+    result_spy = QSignalSpy(slider.resultSignal)
+
+    QTest.mousePress(slider, Qt.MouseButton.LeftButton, pos=QPoint(17, 17))
+    for delay, position in (
+        (18, QPoint(58, 19)),
+        (24, QPoint(105, 15)),
+        (31, QPoint(166, 20)),
+        (39, QPoint(236, 17)),
+    ):
+        QTest.qWait(delay)
+        QTest.mouseMove(slider, position)
+    QTest.qWait(22)
+    QTest.mouseRelease(
+        slider,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(236, 17),
+    )
+
+    assert result_spy.count() == 1
+    result = result_spy.at(0)[0]
+    assert result["result"] is True
+    assert "轨迹时间戳异常" not in result["msg"]
+
+
+def test_keyboard_sequence_does_not_duplicate_first_timestamp(qapp):
+    slider = VerificationSlider()
+    slider.show()
+    slider.setFocus()
+    result_spy = QSignalSpy(slider.resultSignal)
+
+    for _ in range(4):
+        QTest.keyClick(slider, Qt.Key.Key_Right)
+        QTest.qWait(5)
+    QTest.keyClick(slider, Qt.Key.Key_Return)
+
+    assert result_spy.count() == 1
+    result = result_spy.at(0)[0]
+    assert result["result"] is True
+    assert result["inputMethod"] == "keyboard"

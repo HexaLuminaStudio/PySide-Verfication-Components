@@ -2,6 +2,8 @@ from PySide6.QtGui import QColor, QPixmap
 
 from src.components.rendering import copy_logical, cover_pixmap, new_canvas
 from src.iconClickVerification.image import Icon
+from src.rotateSliderVerification import LocalVerificationImage
+from src.tileOrderVerification import LocalVerificationImage as LocalTileOrderImage
 
 
 def test_high_dpi_canvas_keeps_logical_size(qapp):
@@ -47,3 +49,40 @@ def test_all_icon_paths_are_valid_and_hit_testable(qapp):
         icon = Icon(icon_type, 10, 10, 40)
         assert not icon.path().isEmpty()
         assert icon.contains(icon.bounds.center())
+
+
+def test_rotate_image_preserves_high_dpi_source_density(qapp):
+    source = QPixmap(420, 420)
+    source.fill(QColor("#345678"))
+    image = LocalVerificationImage(
+        [source],
+        initial_angle_degrees=180,
+    )
+
+    assert image.currentImage.deviceIndependentSize().width() == image._image_width
+    assert image.currentImage.deviceIndependentSize().height() == image._image_height
+
+
+def test_rotate_image_scale_is_bounded_and_preserves_aspect_ratio(qapp):
+    source = QPixmap(600, 338)
+    source.fill(QColor("#345678"))
+    image = LocalVerificationImage([source], image_scale=0.9)
+
+    assert image._image_width == 270
+    assert image._image_height == 152
+    assert image.currentImage.deviceIndependentSize().width() == 270
+    assert image.currentImage.deviceIndependentSize().height() == 152
+
+
+def test_tile_order_slices_keep_logical_dimensions(qapp):
+    source = QPixmap(600, 338)
+    source.fill(QColor("#345678"))
+    image = LocalTileOrderImage(
+        [source],
+        tile_count=4,
+        initial_order=[2, 0, 3, 1],
+    )
+
+    assert len(image.tiles) == 4
+    assert all(tile.deviceIndependentSize().width() == 75 for tile in image.tiles)
+    assert all(tile.deviceIndependentSize().height() == 169 for tile in image.tiles)

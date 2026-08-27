@@ -8,11 +8,17 @@ from .figureSliderVerification import VerificationCard as FigureSliderCard
 from .figureSliderVerification import VerificationFlyout as FigureSliderFlyout
 from .iconClickVerification import VerificationCard as IconClickCard
 from .iconClickVerification import VerificationFlyout as IconClickFlyout
+from .rotateSliderVerification import VerificationCard as RotateSliderCard
+from .rotateSliderVerification import VerificationFlyout as RotateSliderFlyout
 from .textClickVerification import VerificationCard as TextClickCard
 from .textClickVerification import VerificationFlyout as TextClickFlyout
-from .components import TrackPolicy
+from .tileOrderVerification import VerificationCard as TileOrderCard
+from .tileOrderVerification import VerificationFlyout as TileOrderFlyout
+from .components import AttemptPolicy, ChallengeLifecycleController, TrackPolicy
 
 __all__ = [
+    "AttemptPolicy",
+    "ChallengeLifecycleController",
     "BasicSliderCard",
     "BasicSliderFlyout",
     "CircleSliderCard",
@@ -21,7 +27,11 @@ __all__ = [
     "FigureSliderFlyout",
     "IconClickCard",
     "IconClickFlyout",
+    "RotateSliderCard",
+    "RotateSliderFlyout",
     "TextClickCard",
     "TextClickFlyout",
+    "TileOrderCard",
+    "TileOrderFlyout",
     "TrackPolicy",
 ]
