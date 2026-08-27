@@ -11,6 +11,7 @@ from pyside_verification import (
     IconClickCard,
     PathTraceCard,
     RotateSliderCard,
+    ShortMemoryCard,
     TileOrderCard,
 )
 from src.components.security import AttemptGuard
@@ -380,5 +381,39 @@ def test_dynamic_target_challenge_sends_bounded_trace_and_opaque_ids(qapp):
     assert set(payload["answer"]["trace"][0]) == {"x", "y", "t"}
     assert payload["behavior"]["followRatio"] >= 0.78
     assert payload["behavior"]["sampleCount"] >= len(payload["answer"]["trace"])
+    assert card.resolveServerVerification(payload["attemptId"], True) is True
+    assert succeeded.count() == 1
+
+
+def test_short_memory_challenge_uses_opaque_ids_in_server_payload(qapp):
+    cell_ids = [f"opaque-cell-{index}" for index in range(9)]
+    sequence = [0, 5, 2, 7]
+    card = ShortMemoryCard(
+        sequence_length=4,
+        sequence_indices=sequence,
+        cell_ids=cell_ids,
+        sequence_id="server-memory-v2",
+        require_server_verification=True,
+        challenge_token="short-memory-token",
+        server_timeout_seconds=60,
+    )
+    card.verifyImage.finishPresentation()
+    requested = QSignalSpy(card.verificationRequested)
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    for index in sequence:
+        card.verifyImage.selectCell(index)
+
+    assert requested.count() == 1
+    assert succeeded.count() == 0
+    payload = requested.at(0)[0]
+    assert payload["challengeToken"] == "short-memory-token"
+    assert payload["answer"] == {
+        "sequenceId": "server-memory-v2",
+        "cellIds": [cell_ids[index] for index in sequence],
+    }
+    assert payload["behavior"]["sequenceLength"] == 4
+    assert payload["behavior"]["selectionCount"] == 4
+    assert payload["behavior"]["inputMethod"] == "pointer"
     assert card.resolveServerVerification(payload["attemptId"], True) is True
     assert succeeded.count() == 1

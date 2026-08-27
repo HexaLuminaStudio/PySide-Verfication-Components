@@ -7,6 +7,7 @@ from src.dragMatchVerification.image import SHAPE_TYPES, shape_path
 from src.conditionRegionVerification.image import REGION_SHAPES, region_path
 from src.pathTraceVerification.image import distance_to_segment
 from src.rotateSliderVerification import LocalVerificationImage
+from src.shortMemoryVerification import VerificationImage as ShortMemoryImage
 from src.tileOrderVerification import LocalVerificationImage as LocalTileOrderImage
 
 
@@ -116,3 +117,15 @@ def test_tile_order_slices_keep_logical_dimensions(qapp):
     assert len(image.tiles) == 4
     assert all(tile.deviceIndependentSize().width() == 75 for tile in image.tiles)
     assert all(tile.deviceIndependentSize().height() == 169 for tile in image.tiles)
+
+
+def test_short_memory_grid_has_nine_non_overlapping_cells(qapp):
+    image = ShortMemoryImage(sequence_indices=[0, 1, 2, 3])
+
+    assert len(image.cellBounds) == 9
+    assert all(bounds.width() >= 44 and bounds.height() >= 44 for bounds in image.cellBounds)
+    assert all(
+        not first.intersects(second)
+        for index, first in enumerate(image.cellBounds)
+        for second in image.cellBounds[index + 1 :]
+    )

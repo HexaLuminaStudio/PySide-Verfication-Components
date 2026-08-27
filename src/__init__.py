@@ -19,6 +19,8 @@ from .pathTraceVerification import VerificationCard as PathTraceCard
 from .pathTraceVerification import VerificationFlyout as PathTraceFlyout
 from .rotateSliderVerification import VerificationCard as RotateSliderCard
 from .rotateSliderVerification import VerificationFlyout as RotateSliderFlyout
+from .shortMemoryVerification import VerificationCard as ShortMemoryCard
+from .shortMemoryVerification import VerificationFlyout as ShortMemoryFlyout
 from .textClickVerification import VerificationCard as TextClickCard
 from .textClickVerification import VerificationFlyout as TextClickFlyout
 from .tileOrderVerification import VerificationCard as TileOrderCard
@@ -46,6 +48,8 @@ __all__ = [
     "PathTraceFlyout",
     "RotateSliderCard",
     "RotateSliderFlyout",
+    "ShortMemoryCard",
+    "ShortMemoryFlyout",
     "TextClickCard",
     "TextClickFlyout",
     "TileOrderCard",

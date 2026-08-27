@@ -19,6 +19,7 @@
 - `PathTraceCard` / `PathTraceFlyout`：从起点连续描摹并依次经过路径节点
 - `ConditionRegionCard` / `ConditionRegionFlyout`：选择所有符合颜色与形状条件的区域
 - `DynamicTargetCard` / `DynamicTargetFlyout`：按住并持续跟随平滑移动的目标
+- `ShortMemoryCard` / `ShortMemoryFlyout`：记住短暂亮起的区域顺序并复现
 - `TextClickCard` / `TextClickFlyout`：文字顺序点选
 - `IconClickCard` / `IconClickFlyout`：颜色与图形顺序点选
 
@@ -185,6 +186,31 @@ captcha = DynamicTargetCard(
     target_speed=60,
     tracking_radius=30,
     min_follow_ratio=0.78,
+)
+```
+
+短时记忆验证码会在卡片显示后依次高亮 3～7 个区域，播放完成后隐藏提示，用户需要按原顺序复现。键盘用户使用方向键移动、空格或回车选择：
+
+```python
+from pyside_verification import ShortMemoryCard
+
+captcha = ShortMemoryCard(
+    sequence_length=4,
+    flash_duration_ms=520,
+    gap_duration_ms=170,
+)
+```
+
+`reduced_motion=True` 会延长每次展示和间隔，降低快速闪烁。服务端挑战可以指定固定顺序、不透明区域 ID 和序列 ID：
+
+```python
+captcha = ShortMemoryCard(
+    sequence_length=4,
+    sequence_indices=[0, 5, 2, 7],
+    cell_ids=[f"cell-{index}" for index in range(9)],
+    sequence_id="memory-sequence-v2",
+    require_server_verification=True,
+    challenge_token="opaque-server-token",
 )
 ```
 

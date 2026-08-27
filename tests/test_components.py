@@ -17,6 +17,7 @@ from pyside_verification import (
     IconClickCard,
     PathTraceCard,
     RotateSliderCard,
+    ShortMemoryCard,
     TextClickCard,
     TileOrderCard,
 )
@@ -32,6 +33,7 @@ def test_all_cards_construct_offline(qapp):
         DynamicTargetCard(),
         PathTraceCard(),
         RotateSliderCard(),
+        ShortMemoryCard(),
         TextClickCard(),
         TileOrderCard(),
         IconClickCard(),
@@ -757,6 +759,112 @@ def test_dynamic_target_validates_path_configuration(qapp):
         DynamicTargetCard(waypoints=[(100, 80)] * 4)
     with pytest.raises(ValueError, match="有限数值"):
         DynamicTargetCard(min_follow_ratio=float("nan"))
+
+
+MEMORY_SEQUENCE = [0, 5, 2, 7]
+MEMORY_CELL_IDS = [f"memory-cell-{index}" for index in range(9)]
+
+
+def make_short_memory_card(**kwargs):
+    return ShortMemoryCard(
+        sequence_length=4,
+        sequence_indices=MEMORY_SEQUENCE,
+        cell_ids=MEMORY_CELL_IDS,
+        sequence_id="memory-sequence-a",
+        **kwargs,
+    )
+
+
+def test_short_memory_ignores_input_until_recall_phase(qapp):
+    card = make_short_memory_card()
+
+    assert card.verifyImage.phase == "ready"
+    assert not card.verifyImage.selectCell(0)
+    assert card.verifyImage.userSequence == []
+
+
+def test_short_memory_presentation_advances_to_recall(qapp):
+    card = ShortMemoryCard(
+        sequence_length=3,
+        sequence_indices=[0, 1, 4],
+        ready_delay_ms=0,
+        flash_duration_ms=80,
+        gap_duration_ms=30,
+    )
+    card.show()
+
+    QTest.qWait(420)
+
+    assert card.verifyImage.phase == "recall"
+    assert card.verifyImage.activePresentationIndex is None
+
+
+def test_short_memory_mouse_reproduces_sequence_in_order(qapp):
+    card = make_short_memory_card()
+    card.show()
+    card.verifyImage.finishPresentation()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    for index in MEMORY_SEQUENCE:
+        QTest.mouseClick(
+            card.verifyImage,
+            Qt.MouseButton.LeftButton,
+            pos=card.verifyImage.cellBounds[index].center().toPoint(),
+        )
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.answer() == {
+        "sequenceId": "memory-sequence-a",
+        "cellIds": [MEMORY_CELL_IDS[index] for index in MEMORY_SEQUENCE],
+    }
+
+
+def test_short_memory_wrong_order_is_rejected_immediately(qapp):
+    card = make_short_memory_card()
+    card.verifyImage.finishPresentation()
+    failed = QSignalSpy(card.verificationFailed)
+
+    assert not card.verifyImage.selectCell(1)
+
+    assert failed.count() == 1
+    assert "顺序" in failed.at(0)[0]
+
+
+def test_short_memory_supports_keyboard_recall(qapp):
+    card = ShortMemoryCard(
+        sequence_length=3,
+        sequence_indices=[0, 1, 4],
+    )
+    card.show()
+    card.verifyImage.finishPresentation()
+    card.verifyImage.setFocus()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Right)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Down)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.inputMethod == "keyboard"
+
+
+def test_short_memory_reduced_motion_uses_slower_presentation(qapp):
+    card = ShortMemoryCard(reduced_motion=True)
+
+    assert card.verifyImage.readyDelay >= 850
+    assert card.verifyImage.flashDuration >= 800
+    assert card.verifyImage.gapDuration >= 260
+
+
+def test_short_memory_validates_server_sequence(qapp):
+    with pytest.raises(ValueError, match="3 到 7"):
+        ShortMemoryCard(sequence_length=2)
+    with pytest.raises(ValueError, match="不能包含重复"):
+        ShortMemoryCard(sequence_length=3, sequence_indices=[0, 0, 1])
+    with pytest.raises(ValueError, match="9 个唯一"):
+        ShortMemoryCard(cell_ids=["same"] * 9)
 
 
 def test_flyout_can_be_created_without_showing(qapp):
