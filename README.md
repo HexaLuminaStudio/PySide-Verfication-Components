@@ -18,6 +18,7 @@
 - `DragMatchCard` / `DragMatchFlyout`：将彩色图形拖入匹配轮廓
 - `PathTraceCard` / `PathTraceFlyout`：从起点连续描摹并依次经过路径节点
 - `ConditionRegionCard` / `ConditionRegionFlyout`：选择所有符合颜色与形状条件的区域
+- `DynamicTargetCard` / `DynamicTargetFlyout`：按住并持续跟随平滑移动的目标
 - `TextClickCard` / `TextClickFlyout`：文字顺序点选
 - `IconClickCard` / `IconClickFlyout`：颜色与图形顺序点选
 
@@ -170,6 +171,32 @@ captcha = ConditionRegionCard(
     ],
     condition_color="blue",
     condition_shape="circle",
+    require_server_verification=True,
+    challenge_token="opaque-server-token",
+)
+```
+
+动态目标追踪验证码会在用户按住目标后开始运动，并检查整个过程的有效跟随率、连续偏离时间和最大偏离距离。键盘用户按空格开始，再用方向键控制追踪光标：
+
+```python
+from pyside_verification import DynamicTargetCard
+
+captcha = DynamicTargetCard(
+    target_speed=60,
+    tracking_radius=30,
+    min_follow_ratio=0.78,
+)
+```
+
+默认时长会根据平滑后轨迹的真实长度自动计算，目标约以每秒 60 像素匀速移动，通常需要 4.5～8 秒完成，不再因某一段距离较长而突然加速。需要固定业务时长时仍可显式传入 `tracking_duration`。
+
+可以通过 `reduced_motion=True` 缩小本地随机轨迹范围并降低刷新频率。服务端挑战可指定轨迹点、不透明目标 ID 与轨迹 ID；提交载荷包含有上限的用户轨迹及行为指标：
+
+```python
+captcha = DynamicTargetCard(
+    waypoints=[(70, 82), (122, 38), (190, 52), (236, 118), (154, 132)],
+    target_id="target-a",
+    path_id="path-v3",
     require_server_verification=True,
     challenge_token="opaque-server-token",
 )

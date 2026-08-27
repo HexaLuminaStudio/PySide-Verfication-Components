@@ -8,6 +8,7 @@ from pyside_verification import (
     CircleSliderFlyout,
     ConditionRegionFlyout,
     DragMatchFlyout,
+    DynamicTargetFlyout,
     FigureSliderFlyout,
     IconClickFlyout,
     PathTraceFlyout,
@@ -27,6 +28,7 @@ class Demo(QWidget):
         ("图形拖拽验证码", DragMatchFlyout),
         ("路径描摹验证码", PathTraceFlyout),
         ("条件区域点选", ConditionRegionFlyout),
+        ("动态目标追踪", DynamicTargetFlyout),
         ("文字点选验证码", TextClickFlyout),
         ("图标点选验证码", IconClickFlyout),
     )

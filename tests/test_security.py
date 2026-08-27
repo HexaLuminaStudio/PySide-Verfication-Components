@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtTest import QSignalSpy, QTest
 
 from pyside_verification import (
@@ -7,6 +7,7 @@ from pyside_verification import (
     ChallengeLifecycleController,
     ConditionRegionCard,
     DragMatchCard,
+    DynamicTargetCard,
     IconClickCard,
     PathTraceCard,
     RotateSliderCard,
@@ -347,5 +348,37 @@ def test_condition_region_challenge_uses_opaque_ids_in_server_payload(qapp):
     assert payload["behavior"]["toggleCount"] == 2
     assert payload["behavior"]["selectedCount"] == 2
     assert payload["behavior"]["inputMethod"] == "pointer"
+    assert card.resolveServerVerification(payload["attemptId"], True) is True
+    assert succeeded.count() == 1
+
+
+def test_dynamic_target_challenge_sends_bounded_trace_and_opaque_ids(qapp):
+    card = DynamicTargetCard(
+        waypoints=[(100, 80), (118, 80), (100, 80), (118, 80)],
+        target_id="moving-target-a",
+        path_id="path-v3",
+        tracking_duration=0.25,
+        tracking_radius=24,
+        max_payload_samples=16,
+        require_server_verification=True,
+        challenge_token="dynamic-target-token",
+        server_timeout_seconds=60,
+    )
+    requested = QSignalSpy(card.verificationRequested)
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    assert card.verifyImage.startTracking(QPointF(100, 80))
+    QTest.qWait(340)
+
+    assert requested.count() == 1
+    assert succeeded.count() == 0
+    payload = requested.at(0)[0]
+    assert payload["challengeToken"] == "dynamic-target-token"
+    assert payload["answer"]["targetId"] == "moving-target-a"
+    assert payload["answer"]["pathId"] == "path-v3"
+    assert 1 <= len(payload["answer"]["trace"]) <= 16
+    assert set(payload["answer"]["trace"][0]) == {"x", "y", "t"}
+    assert payload["behavior"]["followRatio"] >= 0.78
+    assert payload["behavior"]["sampleCount"] >= len(payload["answer"]["trace"])
     assert card.resolveServerVerification(payload["attemptId"], True) is True
     assert succeeded.count() == 1

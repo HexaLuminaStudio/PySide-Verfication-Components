@@ -9,6 +9,8 @@ from .conditionRegionVerification import VerificationCard as ConditionRegionCard
 from .conditionRegionVerification import VerificationFlyout as ConditionRegionFlyout
 from .dragMatchVerification import VerificationCard as DragMatchCard
 from .dragMatchVerification import VerificationFlyout as DragMatchFlyout
+from .dynamicTargetVerification import VerificationCard as DynamicTargetCard
+from .dynamicTargetVerification import VerificationFlyout as DynamicTargetFlyout
 from .figureSliderVerification import VerificationCard as FigureSliderCard
 from .figureSliderVerification import VerificationFlyout as FigureSliderFlyout
 from .iconClickVerification import VerificationCard as IconClickCard
@@ -34,6 +36,8 @@ __all__ = [
     "ConditionRegionFlyout",
     "DragMatchCard",
     "DragMatchFlyout",
+    "DynamicTargetCard",
+    "DynamicTargetFlyout",
     "FigureSliderCard",
     "FigureSliderFlyout",
     "IconClickCard",

@@ -1,6 +1,8 @@
+import math
+
 import pytest
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtTest import QSignalSpy, QTest
 
@@ -10,6 +12,7 @@ from pyside_verification import (
     CircleSliderCard,
     ConditionRegionCard,
     DragMatchCard,
+    DynamicTargetCard,
     FigureSliderCard,
     IconClickCard,
     PathTraceCard,
@@ -26,6 +29,7 @@ def test_all_cards_construct_offline(qapp):
         CircleSliderCard(),
         ConditionRegionCard(),
         DragMatchCard(),
+        DynamicTargetCard(),
         PathTraceCard(),
         RotateSliderCard(),
         TextClickCard(),
@@ -624,6 +628,135 @@ def test_condition_region_validates_server_supplied_regions(qapp):
             condition_color="blue",
             condition_shape="hexagon",
         )
+
+
+TRACKING_WAYPOINTS = [(100, 80), (118, 80), (100, 80), (118, 80)]
+
+
+def test_dynamic_target_follows_smooth_fixed_path(qapp):
+    card = DynamicTargetCard(waypoints=TRACKING_WAYPOINTS)
+
+    assert card.verifyImage.targetPositionAt(0) == QPointF(100, 80)
+    assert card.verifyImage.targetPositionAt(1) == QPointF(118, 80)
+    midpoint = card.verifyImage.targetPositionAt(0.5)
+    assert 100 <= midpoint.x() <= 118
+    assert midpoint.y() == 80
+
+
+def test_dynamic_target_default_speed_is_length_based_and_comfortable(qapp):
+    card = DynamicTargetCard(
+        waypoints=[(70, 82), (122, 38), (190, 52), (236, 118), (154, 132)],
+    )
+    image = card.verifyImage
+
+    assert 4.5 <= image.trackingDuration <= 8.0
+    assert image.pathLength / image.trackingDuration <= 60.01
+    steps = [image.targetPositionAt(index / 100) for index in range(101)]
+    distances = [
+        math.hypot(end.x() - start.x(), end.y() - start.y())
+        for start, end in zip(steps, steps[1:])
+    ]
+    assert max(distances) <= image.pathLength / 100 * 1.02
+
+
+def test_dynamic_target_reduced_motion_caps_automatic_speed(qapp):
+    card = DynamicTargetCard(
+        waypoints=[(70, 82), (122, 38), (190, 52), (236, 118), (154, 132)],
+        reduced_motion=True,
+    )
+
+    assert card.verifyImage.pathLength / card.verifyImage.trackingDuration <= 45.01
+
+
+def test_dynamic_target_completes_when_pointer_stays_within_target(qapp):
+    card = DynamicTargetCard(
+        waypoints=TRACKING_WAYPOINTS,
+        tracking_duration=0.25,
+        tracking_radius=24,
+    )
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    assert card.verifyImage.startTracking(QPointF(100, 80))
+    QTest.qWait(340)
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.followRatio >= card.verifyImage.minFollowRatio
+
+
+def test_dynamic_target_rejects_starting_outside_target(qapp):
+    card = DynamicTargetCard(waypoints=TRACKING_WAYPOINTS)
+    rejected = QSignalSpy(card.verifyImage.trackingRejected)
+
+    assert not card.verifyImage.startTracking(QPointF(20, 20))
+
+    assert rejected.count() == 1
+    assert "目标" in rejected.at(0)[0]
+
+
+def test_dynamic_target_rejects_large_pointer_deviation(qapp):
+    card = DynamicTargetCard(
+        waypoints=TRACKING_WAYPOINTS,
+        hard_miss_radius=60,
+    )
+    rejected = QSignalSpy(card.verifyImage.trackingRejected)
+
+    assert card.verifyImage.startTracking(QPointF(100, 80))
+    card.verifyImage.updatePointer(QPointF(0, 0))
+    card.verifyImage._tick()
+
+    assert rejected.count() == 1
+    assert "过远" in rejected.at(0)[0]
+
+
+def test_dynamic_target_mouse_release_before_completion_fails(qapp):
+    card = DynamicTargetCard(
+        waypoints=TRACKING_WAYPOINTS,
+        tracking_duration=0.5,
+    )
+    card.show()
+    failed = QSignalSpy(card.verificationFailed)
+
+    QTest.mousePress(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(100, 80),
+    )
+    QTest.mouseRelease(
+        card.verifyImage,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(100, 80),
+    )
+
+    assert failed.count() == 1
+    assert "提前结束" in failed.at(0)[0]
+
+
+def test_dynamic_target_supports_keyboard_tracking(qapp):
+    card = DynamicTargetCard(
+        waypoints=TRACKING_WAYPOINTS,
+        tracking_duration=0.25,
+        tracking_radius=32,
+    )
+    card.show()
+    card.verifyImage.setFocus()
+    succeeded = QSignalSpy(card.verificationSuccess)
+
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Space)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Right)
+    QTest.keyClick(card.verifyImage, Qt.Key.Key_Left)
+    QTest.qWait(340)
+
+    assert succeeded.count() == 1
+    assert card.verifyImage.inputMethod == "keyboard"
+
+
+def test_dynamic_target_validates_path_configuration(qapp):
+    with pytest.raises(ValueError, match="4 到 8"):
+        DynamicTargetCard(waypoints=TRACKING_WAYPOINTS[:3])
+    with pytest.raises(ValueError, match="实际移动路径"):
+        DynamicTargetCard(waypoints=[(100, 80)] * 4)
+    with pytest.raises(ValueError, match="有限数值"):
+        DynamicTargetCard(min_follow_ratio=float("nan"))
 
 
 def test_flyout_can_be_created_without_showing(qapp):
