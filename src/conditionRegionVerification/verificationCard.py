@@ -8,7 +8,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from ..components.cards import VerificationFlyoutBase
+from ..components.cards import InstructionLabel, VerificationFlyoutBase
 from ..components.security import AttemptPolicy, ChallengeLifecycleController
 from .image import REGION_COLORS, RegionSpec, VerificationImage, region_path
 
@@ -185,10 +185,12 @@ class VerificationCard(QWidget):
 
         self.submitButton = ConditionFooter(self)
         self.tipLabel = self.submitButton
+        self.instructionLabel = InstructionLabel("", self)
         self._sync_footer()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.addWidget(self.instructionLabel)
         layout.addWidget(self.verifyImage)
         layout.addWidget(self.submitButton)
 
@@ -198,6 +200,11 @@ class VerificationCard(QWidget):
         self.submitButton.clicked.connect(self._submit)
 
     def _sync_footer(self, _description: str = "") -> None:
+        self.instructionLabel.setText(self.verifyImage.verificationText)
+        self.instructionLabel.setDetails(
+            "点击区域可选择或取消，选完后点击勾号确认。"
+            "键盘：方向键移动，空格选择，回车确认。"
+        )
         self.submitButton.setCondition(
             self.verifyImage.conditionColor,
             self.verifyImage.conditionShape,

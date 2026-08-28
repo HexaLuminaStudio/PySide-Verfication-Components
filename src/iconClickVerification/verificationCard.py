@@ -21,6 +21,7 @@ class VerificationCard(ClickVerificationCard):
         super().__init__(
             VerificationImage,
             parent=parent,
+            instruction_text="按提示顺序点击对应图标；颜色和形状都要一致。",
             require_server_verification=require_server_verification,
             challenge_token=challenge_token,
             challenge_ttl_seconds=challenge_ttl_seconds,

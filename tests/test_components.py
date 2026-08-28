@@ -42,6 +42,37 @@ def test_all_cards_construct_offline(qapp):
     assert all(not getattr(card.verifyImage, "loading", False) for card in cards)
 
 
+def test_all_cards_show_plain_language_instructions(qapp):
+    cards_and_actions = [
+        (BasicSliderCard(), "让拼图块对准缺口"),
+        (FigureSliderCard(), "让彩色图形与轮廓重合"),
+        (CircleSliderCard(), "旋转圆环并拼合图案"),
+        (ConditionRegionCard(), "请选择所有"),
+        (DragMatchCard(), "拖入相同的虚线轮廓"),
+        (DynamicTargetCard(), "持续跟随至进度完成"),
+        (PathTraceCard(), "沿虚线拖到绿色终点"),
+        (RotateSliderCard(), "旋转至正常方向"),
+        (ShortMemoryCard(), "提示消失后依次点击"),
+        (TextClickCard(), "依次点击："),
+        (TileOrderCard(), "还原完整图片"),
+        (IconClickCard(), "依次点击："),
+    ]
+
+    for card, expected_action in cards_and_actions:
+        text = card.instructionLabel.text()
+        assert expected_action in text
+        assert card.instructionLabel.wordWrap()
+        assert card.instructionLabel.accessibleName() == "操作说明"
+        assert card.instructionLabel.accessibleDescription()
+
+
+def test_condition_instruction_names_the_current_target(qapp):
+    card = make_condition_region_card()
+
+    assert "请选择所有蓝色圆形区域（2 个）" in card.instructionLabel.text()
+    assert "点击勾号确认" in card.instructionLabel.accessibleDescription()
+
+
 def test_click_challenges_accept_the_generated_targets(qapp):
     for card_class in (TextClickCard, IconClickCard):
         card = card_class()

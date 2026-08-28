@@ -4,54 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import QPointF, Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from ..components.cards import VerificationFlyoutBase
+from ..components.cards import InstructionLabel, VerificationFlyoutBase
 from ..components.security import AttemptPolicy, ChallengeLifecycleController
 from .image import VerificationImage
-
-
-class PathTraceHint(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedHeight(34)
-        self.setAccessibleName("验证提示")
-        self.setText("从起点连续描摹至终点")
-
-    def setText(self, text: str) -> None:
-        self.setAccessibleDescription(text)
-        self.setToolTip(text)
-
-    def paintEvent(self, event) -> None:
-        del event
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setOpacity(1.0 if self.isEnabled() else 0.45)
-        center_x = self.width() / 2
-        points = (
-            QPointF(center_x - 43, 20),
-            QPointF(center_x - 14, 11),
-            QPointF(center_x + 15, 22),
-            QPointF(center_x + 43, 13),
-        )
-        painter.setPen(
-            QPen(
-                QColor("#526177"),
-                2.0,
-                Qt.PenStyle.SolidLine,
-                Qt.PenCapStyle.RoundCap,
-                Qt.PenJoinStyle.RoundJoin,
-            )
-        )
-        for start, end in zip(points, points[1:]):
-            painter.drawLine(start, end)
-        for index, point in enumerate(points):
-            painter.setPen(QPen(QColor("#ffffff"), 1))
-            painter.setBrush(QColor("#198ff2") if index == 0 else QColor("#16856b"))
-            painter.drawEllipse(point, 4.5, 4.5)
-        painter.end()
 
 
 class VerificationCard(QWidget):
@@ -99,16 +57,23 @@ class VerificationCard(QWidget):
             backtrack_tolerance=backtrack_tolerance,
             max_payload_samples=max_payload_samples,
         )
-        self.tipLabel = PathTraceHint(self)
+        self.instructionLabel = InstructionLabel(
+            "从蓝色起点沿虚线拖到绿色终点",
+            self,
+            details=(
+                "请依次经过每个节点，不要中途放开。"
+                "键盘：空格开始，方向键推进或回退，到终点再按空格提交。"
+            ),
+        )
+        self.tipLabel = self.instructionLabel
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.addWidget(self.instructionLabel)
         layout.addWidget(self.verifyImage)
-        layout.addWidget(self.tipLabel)
 
         self.verifyImage.verificationComplete.connect(self._verify)
-        self.verifyImage.challengeChanged.connect(self.tipLabel.setText)
         self.verifyImage.pathRejected.connect(self.verificationFailed.emit)
 
     def _refresh_challenge(self) -> None:

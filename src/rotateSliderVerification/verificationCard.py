@@ -43,6 +43,7 @@ class VerificationCard(SliderVerificationCard):
         super().__init__(
             typed_factory,
             parent=parent,
+            instruction_text="拖动滑块，将图片旋转至正常方向",
             image_url=image_url,
             tolerance=round(angle_tolerance_degrees),
             track_policy=track_policy,

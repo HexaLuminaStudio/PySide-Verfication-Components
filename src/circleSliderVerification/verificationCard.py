@@ -22,6 +22,7 @@ class VerificationCard(SliderVerificationCard):
         super().__init__(
             VerificationImage,
             parent=parent,
+            instruction_text="拖动滑块，旋转圆环并拼合图案",
             image_url=image_url,
             tolerance=0,
             track_policy=track_policy,

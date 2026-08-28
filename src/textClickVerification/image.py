@@ -81,11 +81,11 @@ class VerificationImage(QWidget):
             targets = random.sample(placements, min(3, len(placements)))
             self.targetChars = [target.character for target in targets]
             self.targetPositions = [target.bounds.center().toPoint() for target in targets]
-            self.verificationText = "点击: " + " ".join(self.targetChars)
+            self.verificationText = "依次点击：" + " ".join(self.targetChars)
         else:
             self.targetChars = []
             self.targetPositions = []
-            self.verificationText = "点击: 无"
+            self.verificationText = "依次点击：无"
 
         self.userClicks = []
         self.update()

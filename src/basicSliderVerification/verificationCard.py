@@ -23,6 +23,7 @@ class VerificationCard(SliderVerificationCard):
         super().__init__(
             VerificationImage,
             parent=parent,
+            instruction_text="拖动滑块，让拼图块对准缺口",
             image_url=image_url,
             tolerance=tolerance,
             track_policy=track_policy,

@@ -4,53 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from ..components.cards import VerificationFlyoutBase
+from ..components.cards import InstructionLabel, VerificationFlyoutBase
 from ..components.security import AttemptPolicy, ChallengeLifecycleController
-from .image import VerificationImage, shape_path
-
-
-class DragMatchHint(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedHeight(34)
-        self.setAccessibleName("验证提示")
-        self.setText("将图形拖入对应轮廓")
-
-    def setText(self, text: str) -> None:
-        self.setAccessibleDescription(text)
-        self.setToolTip(text)
-
-    def paintEvent(self, event) -> None:
-        del event
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setOpacity(1.0 if self.isEnabled() else 0.45)
-        center_x = self.width() / 2
-        source_center = QPointF(center_x - 42, 17)
-        target_center = QPointF(center_x + 42, 17)
-        painter.setPen(QPen(QColor("#ffffff"), 1))
-        painter.setBrush(QColor("#2878c8"))
-        painter.drawPath(shape_path("diamond", source_center, 20))
-        painter.setPen(QPen(QColor("#6a778b"), 1.6, Qt.PenStyle.DashLine))
-        painter.setBrush(QColor(106, 119, 139, 20))
-        painter.drawPath(shape_path("diamond", target_center, 24))
-        painter.setPen(
-            QPen(
-                QColor("#526177"),
-                1.7,
-                Qt.PenStyle.SolidLine,
-                Qt.PenCapStyle.RoundCap,
-                Qt.PenJoinStyle.RoundJoin,
-            )
-        )
-        painter.drawLine(QPointF(center_x - 22, 17), QPointF(center_x + 20, 17))
-        painter.drawLine(QPointF(center_x + 20, 17), QPointF(center_x + 14, 12))
-        painter.drawLine(QPointF(center_x + 20, 17), QPointF(center_x + 14, 22))
-        painter.end()
+from .image import VerificationImage
 
 
 class VerificationCard(QWidget):
@@ -96,16 +55,23 @@ class VerificationCard(QWidget):
             target_order=target_order,
             animation_duration_ms=animation_duration_ms,
         )
-        self.tipLabel = DragMatchHint(self)
+        self.instructionLabel = InstructionLabel(
+            "把彩色图形拖入相同的虚线轮廓",
+            self,
+            details=(
+                "全部归位后自动提交。"
+                "键盘：左右键选图形，空格拿起；左右键选轮廓，再按空格放下。"
+            ),
+        )
+        self.tipLabel = self.instructionLabel
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.addWidget(self.instructionLabel)
         layout.addWidget(self.verifyImage)
-        layout.addWidget(self.tipLabel)
 
         self.verifyImage.verificationComplete.connect(self._verify)
-        self.verifyImage.challengeChanged.connect(self.tipLabel.setText)
 
     def _refresh_challenge(self) -> None:
         self.verifyImage.setEnabled(True)

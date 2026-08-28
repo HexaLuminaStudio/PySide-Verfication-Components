@@ -20,6 +20,7 @@ class VerificationCard(ClickVerificationCard):
         super().__init__(
             VerificationImage,
             parent=parent,
+            instruction_text="按提示顺序点击对应文字；全部点完后自动提交。",
             image_url=image_url,
             require_server_verification=require_server_verification,
             challenge_token=challenge_token,

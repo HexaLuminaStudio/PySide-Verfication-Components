@@ -4,60 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from ..components.cards import VerificationFlyoutBase
+from ..components.cards import InstructionLabel, VerificationFlyoutBase
 from ..components.security import AttemptPolicy, ChallengeLifecycleController
 from .url_image import VerificationImage
-
-
-class TileOrderHint(QWidget):
-    """Font-independent visual instruction for exchanging two tiles."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedHeight(34)
-        self.setAccessibleName("验证提示")
-        self.setText("拖动图块恢复图片顺序")
-
-    def setText(self, text: str) -> None:
-        self.setAccessibleDescription(text)
-        self.setToolTip(text)
-
-    def paintEvent(self, event) -> None:
-        del event
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setOpacity(1.0 if self.isEnabled() else 0.45)
-
-        center_x = self.width() / 2
-        left = QRectF(center_x - 44, 7, 24, 20)
-        right = QRectF(center_x + 20, 7, 24, 20)
-        painter.setPen(QPen(QColor("#198ff2"), 1.4))
-        painter.setBrush(QColor("#eaf4fc"))
-        painter.drawRoundedRect(left, 3, 3)
-        painter.setPen(QPen(QColor("#6a778b"), 1.4))
-        painter.setBrush(QColor("#f0f3f7"))
-        painter.drawRoundedRect(right, 3, 3)
-
-        painter.setPen(
-            QPen(
-                QColor("#526177"),
-                1.7,
-                Qt.PenStyle.SolidLine,
-                Qt.PenCapStyle.RoundCap,
-                Qt.PenJoinStyle.RoundJoin,
-            )
-        )
-        painter.drawLine(QPointF(center_x - 14, 13), QPointF(center_x + 14, 13))
-        painter.drawLine(QPointF(center_x + 14, 13), QPointF(center_x + 9, 9))
-        painter.drawLine(QPointF(center_x + 14, 13), QPointF(center_x + 9, 17))
-        painter.drawLine(QPointF(center_x + 14, 21), QPointF(center_x - 14, 21))
-        painter.drawLine(QPointF(center_x - 14, 21), QPointF(center_x - 9, 17))
-        painter.drawLine(QPointF(center_x - 14, 21), QPointF(center_x - 9, 25))
-        painter.end()
 
 
 class VerificationCard(QWidget):
@@ -102,16 +54,23 @@ class VerificationCard(QWidget):
             tile_ids=tile_ids,
             animation_duration_ms=animation_duration_ms,
         )
-        self.tipLabel = TileOrderHint(self)
+        self.instructionLabel = InstructionLabel(
+            "拖动图块交换位置，还原完整图片",
+            self,
+            details=(
+                "正确还原后自动提交。"
+                "键盘：空格拿起图块，左右方向键移动，再按空格放下。"
+            ),
+        )
+        self.tipLabel = self.instructionLabel
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.addWidget(self.instructionLabel)
         layout.addWidget(self.verifyImage)
-        layout.addWidget(self.tipLabel)
 
         self.verifyImage.verificationComplete.connect(self._verify)
-        self.verifyImage.challengeChanged.connect(self.tipLabel.setText)
 
     def _refresh_challenge(self) -> None:
         self.verifyImage.setEnabled(True)

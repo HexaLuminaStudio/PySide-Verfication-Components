@@ -8,7 +8,7 @@ from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from ..components.cards import VerificationFlyoutBase
+from ..components.cards import InstructionLabel, VerificationFlyoutBase
 from ..components.security import AttemptPolicy, ChallengeLifecycleController
 from .image import VerificationImage
 
@@ -115,9 +115,18 @@ class VerificationCard(QWidget):
             max_payload_samples=max_payload_samples,
         )
         self.tipLabel = TrackingHint(self)
+        self.instructionLabel = InstructionLabel(
+            "按住蓝色目标，持续跟随至进度完成",
+            self,
+            details=(
+                "跟随时保持指针在虚线圆内。"
+                "键盘：空格开始，方向键跟随。"
+            ),
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.addWidget(self.instructionLabel)
         layout.addWidget(self.verifyImage)
         layout.addWidget(self.tipLabel)
 

@@ -243,7 +243,9 @@ class VerificationImage(QWidget):
             f"{self.COLOR_NAMES[icon.color.name()]}的{self.TYPE_NAMES[icon.iconType]}"
             for icon in self.targetIcons
         ]
-        self.verificationText = "点击: " + " ".join(descriptions) if descriptions else "点击: 无"
+        self.verificationText = (
+            "依次点击：" + " ".join(descriptions) if descriptions else "依次点击：无"
+        )
         self.userClicks = []
         self.challengeChanged.emit(self.verificationText)
         self.setAccessibleDescription(self.verificationText)

@@ -6,11 +6,55 @@ from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import QPoint, QTimer, Qt, Signal
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from .flyout import Flyout, FlyoutView, PullUpFlyoutAnimationManager
 from .security import AttemptPolicy, ChallengeLifecycleController
 from .slider import TrackPolicy, VerificationSlider
+
+
+class InstructionLabel(QLabel):
+    """Visible, translatable guidance shared by verification cards."""
+
+    def __init__(
+        self,
+        text: str,
+        parent: QWidget | None = None,
+        *,
+        details: str | None = None,
+    ) -> None:
+        super().__init__(text, parent)
+        self._details = details
+        self.setObjectName("verificationInstruction")
+        self.setFixedWidth(300)
+        self.setMinimumHeight(28)
+        self.setWordWrap(True)
+        self.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.setContentsMargins(2, 0, 2, 0)
+        font = self.font()
+        font.setWeight(QFont.Weight.DemiBold)
+        self.setFont(font)
+        self.setAccessibleName("操作说明")
+        self._sync_details()
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self._sync_details()
+
+    def setDetails(self, details: str | None) -> None:
+        self._details = details
+        self._sync_details()
+
+    def _sync_details(self) -> None:
+        if self._details:
+            self.setAccessibleDescription(f"{self.text()}。{self._details}")
+            self.setToolTip(self._details)
+            return
+        self.setAccessibleDescription(self.text())
+        self.setToolTip("")
 
 
 class SliderVerificationCard(QWidget):
@@ -25,6 +69,7 @@ class SliderVerificationCard(QWidget):
         self,
         image_factory: Callable[..., QWidget],
         *,
+        instruction_text: str = "拖动滑块，调整画面至正确位置",
         tolerance: int = 8,
         image_url: str | None = None,
         track_policy: TrackPolicy | None = None,
@@ -52,10 +97,19 @@ class SliderVerificationCard(QWidget):
         self.verifySlider = VerificationSlider(self, policy=track_policy)
         self.verifySlider.valueChanged.connect(self._move_image)
         self.verifySlider.resultSignal.connect(self._verify)
+        self.instructionLabel = InstructionLabel(
+            instruction_text,
+            self,
+            details=(
+                "松开后自动提交。"
+                "键盘：方向键移动，Shift 加方向键微调，回车或空格提交。"
+            ),
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
+        layout.addWidget(self.instructionLabel)
         layout.addWidget(self.verifyImage)
         layout.addWidget(self.verifySlider)
 
@@ -177,6 +231,7 @@ class ClickVerificationCard(QWidget):
         self,
         image_factory: Callable[..., QWidget],
         *,
+        instruction_text: str = "按提示顺序点击图片中的目标",
         image_url: str | None = None,
         require_server_verification: bool = False,
         challenge_token: str | None = None,
@@ -201,22 +256,24 @@ class ClickVerificationCard(QWidget):
             self.verifyImage = image_factory(parent=self, image_url=image_url)
         except TypeError:
             self.verifyImage = image_factory(parent=self)
-        self.tipLabel = QLabel("正在生成验证内容…", self)
-        self.tipLabel.setWordWrap(True)
-        self.tipLabel.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.tipLabel.setMinimumHeight(34)
-        self.tipLabel.setAccessibleName("验证提示")
+        self.instructionLabel = InstructionLabel(
+            "正在生成验证内容…",
+            self,
+            details=instruction_text,
+        )
+        self.tipLabel = self.instructionLabel
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.addWidget(self.instructionLabel)
         layout.addWidget(self.verifyImage)
-        layout.addWidget(self.tipLabel)
 
         self.verifyImage.verificationComplete.connect(self._verify)
         challenge_changed = getattr(self.verifyImage, "challengeChanged", None)
         if challenge_changed is not None:
             challenge_changed.connect(self.tipLabel.setText)
+        self._sync_tip()
         QTimer.singleShot(0, self._sync_tip)
 
     def _sync_tip(self) -> None:

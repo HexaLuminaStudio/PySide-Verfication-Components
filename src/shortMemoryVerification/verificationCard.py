@@ -8,7 +8,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-from ..components.cards import VerificationFlyoutBase
+from ..components.cards import InstructionLabel, VerificationFlyoutBase
 from ..components.security import AttemptPolicy, ChallengeLifecycleController
 from .image import VerificationImage
 
@@ -127,9 +127,17 @@ class VerificationCard(QWidget):
             reduced_motion=reduced_motion,
         )
         self.tipLabel = MemoryHint(self)
+        self.instructionLabel = InstructionLabel(
+            "记住亮起顺序，提示消失后依次点击",
+            self,
+            details=(
+                "键盘：方向键选择格子，空格或回车确认。"
+            ),
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.addWidget(self.instructionLabel)
         layout.addWidget(self.verifyImage)
         layout.addWidget(self.tipLabel)
 
